@@ -16,12 +16,21 @@ Usage:
   infra-token-factory revoke cloudflare --name <token-name> --account-id <id>
   infra-token-factory mint planetscale <options>
   infra-token-factory revoke planetscale --org <org> --name <token-name>
+  infra-token-factory mint fly <options>
+  infra-token-factory revoke fly --org <org> [--app <app>] --name <token-name>
+  infra-token-factory exec fly --org <org> -- <command> [args...]
+  infra-token-factory mint tailscale <options>
+  infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
   infra-token-factory exec hetzner --project <label> -- <command> [args...]
   infra-token-factory import planetscale --org <org>
   infra-token-factory import hetzner --project <label>
+  infra-token-factory import fly --org <org>
+  infra-token-factory import tailscale --tailnet <label>
   infra-token-factory check cloudflare
   infra-token-factory check planetscale --org <org>
   infra-token-factory check hetzner --project <label>
+  infra-token-factory check fly --org <org>
+  infra-token-factory check tailscale --tailnet <label>
 """
 
 @main
@@ -42,6 +51,15 @@ struct InfraTokenFactory {
             case ("exec", "hetzner"): try await Hetzner.exec(rest)
             case ("import", "hetzner"): try await Hetzner.importParent(rest)
             case ("check", "hetzner"): try await Hetzner.check(rest)
+            case ("mint", "fly"): try await Fly.mint(rest)
+            case ("revoke", "fly"): try await Fly.revoke(rest)
+            case ("exec", "fly"): try await Fly.exec(rest)
+            case ("import", "fly"): try await Fly.importParent(rest)
+            case ("check", "fly"): try await Fly.check(rest)
+            case ("mint", "tailscale"): try await Tailscale.mint(rest)
+            case ("revoke", "tailscale"): try await Tailscale.revoke(rest)
+            case ("import", "tailscale"): try await Tailscale.importParent(rest)
+            case ("check", "tailscale"): try await Tailscale.check(rest)
             default: throw FactoryError.message(usage)
             }
         } catch {
@@ -232,3 +250,23 @@ struct InfisicalDestination {
 }
 
 func isSecretName(_ value: String) -> Bool { matches(value, "^[A-Z][A-Z0-9_]+$") }
+
+/// Shows the command, asks for approval, puts the parent in `env`, and
+/// replaces this process with the command. The command can read the secret.
+func runWithSecret(_ item: KeychainItem, env: String, label: String, command: [String]) async throws -> Never {
+    let shown = command.joined(separator: " ")
+    print("Command request")
+    print("  Credential: \(label) as \(env)")
+    print("  Command: \(shown)")
+    print("Waiting for local approval…")
+    fflush(stdout)
+    try await requireUserApproval(
+        reason: "Run with \(label): \(shown.count > 200 ? String(shown.prefix(200)) + "…" : shown)"
+    )
+    var secret = try item.read()
+    setenv(env, String(decoding: secret, as: UTF8.self), 1)
+    secret.resetBytes(in: 0..<secret.count)
+    var argv: [UnsafeMutablePointer<CChar>?] = command.map { strdup($0) } + [nil]
+    execvp(command[0], &argv)
+    throw FactoryError.message("Cannot run \(command[0]): \(String(cString: strerror(errno)))")
+}
