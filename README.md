@@ -1,64 +1,88 @@
-# Cloudflare token factory
+# Infra token factory
 
-`cloudflare-token-mint` creates least-privilege, account-owned Cloudflare API
-tokens for agents and CI. It keeps the parent token in the macOS Keychain and
-never prints it.
+`infra-token-factory` lets agents get scoped cloud credentials while you approve
+each request with Touch ID. Parent credentials stay in the macOS login
+Keychain. The binary never prints them.
 
-## How it works
+| Provider | Mode | Keychain item (service / account) |
+| --- | --- | --- |
+| Cloudflare | Mint an account-owned child token into Infisical | `gondr-token.cloudflare` / `bootstrap` |
+| PlanetScale | Mint a child service token into Infisical | `gondr-token.planetscale` / `<org>` |
+| Hetzner Cloud | Run one approved command with `HCLOUD_TOKEN` set | `gondr-token.hetzner` / `<project>` |
 
-1. You run `cloudflare-token-mint` with a token name, an account, permissions,
-   and an Infisical destination.
-2. macOS asks you to approve with Touch ID or your password.
-3. The broker reads the parent token from Keychain item
-   `gondr-token.cloudflare` (account `bootstrap`).
-4. It creates the child token, verifies it, and writes it to Infisical through
-   stdin.
-5. If verification or storage fails, it revokes the child token.
-
-Only this binary can read the Keychain item. A child token can never manage API
-tokens.
+Hetzner Cloud has no API to create tokens, so the factory gates each command
+instead. The command can read the token. Approve only commands you trust.
 
 ## Install
 
-Run `bin/install`. It builds the binary, keeps the old one as
-`cloudflare-token-mint.previous`, and binds the Keychain item to the new
-binary. macOS asks for your login keychain password during the bind.
+Run `bin/install`. It builds the binary into
+`~/.local/share/infra-token-factory/` and links it as
+`~/.local/bin/infra-token-factory`.
 
-The bind does not update the item's partition list. On the first mint after an
-install, macOS asks for your login password once. Enter it and click
-**Always Allow**. Later mints need only Touch ID.
+After each install, the first use of each Keychain item makes macOS ask for
+your login password. Enter it and click **Always Allow**. Later requests need
+only Touch ID.
 
-## Mint a child token
+## Add a parent credential
+
+Run these in your own terminal. Each asks for the secret with echo off, then
+for Touch ID.
 
 ```sh
-cloudflare-token-mint --name <token-name> --account-id <id> \
+infra-token-factory import planetscale --org <org>
+infra-token-factory import hetzner --project <label>
+```
+
+- PlanetScale parent: a service token with `write_service_tokens`,
+  `read_service_tokens`, `delete_service_tokens`, and every access a child may
+  get. A child can only get accesses the parent holds.
+- Hetzner: a **Read & Write** API token for the project.
+
+## Mint
+
+```sh
+infra-token-factory mint cloudflare --name <token-name> --account-id <id> \
   --account-permission <name> [--account-permission ...] \
   [--zone <zone> --zone-id <id> --zone-permission <name> ...] \
   --expires-in <N>h|<N>d|never [--allow-ip <cidr> ...] \
-  --infisical-project <id> --infisical-env <env> \
-  --infisical-path <path> --infisical-secret CLOUDFLARE_<CAPABILITY>_API_TOKEN
+  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
+  --infisical-secret CLOUDFLARE_<CAPABILITY>_API_TOKEN
+
+infra-token-factory mint planetscale --org <org> --name <token-name> \
+  [--org-access <access> ...] [--database <db> --database-access <access> ...] \
+  --expires-in <N>h|<N>d|never \
+  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
+  --infisical-secret-prefix PLANETSCALE_<CAPABILITY>
 ```
 
 - `--expires-in` is required. Use `never` only for a token that must outlive a
   rotation cycle.
-- `--allow-ip` limits the token to up to 16 IPv4 or IPv6 addresses or CIDR
-  ranges.
-- Permission names resolve live from the account. A name that matches zero or
-  several groups fails.
+- A child can never manage API tokens or service tokens.
+- PlanetScale writes `<prefix>_SERVICE_TOKEN_ID` and `<prefix>_SERVICE_TOKEN`.
+- If a grant, check, or vault write fails, the factory deletes the child.
 
-## Revoke a child token
-
-```sh
-cloudflare-token-mint --revoke <token-name> --account-id <id>
-```
-
-The broker deletes the one account token with that exact name. It fails if no
-token or several tokens have that name. It does not delete the Infisical secret.
-
-## Check the parent token
+## Revoke
 
 ```sh
-cloudflare-token-mint --check-keychain
+infra-token-factory revoke cloudflare --name <token-name> --account-id <id>
+infra-token-factory revoke planetscale --org <org> --name <token-name>
 ```
 
-This reports presence only.
+Each deletes the one token with that exact name. It fails if no token or
+several tokens have that name. It does not delete the Infisical secrets.
+
+## Run a Hetzner command
+
+```sh
+infra-token-factory exec hetzner --project <label> -- <command> [args...]
+```
+
+## Check a parent credential
+
+```sh
+infra-token-factory check cloudflare
+infra-token-factory check planetscale --org <org>
+infra-token-factory check hetzner --project <label>
+```
+
+Each reports presence only.
