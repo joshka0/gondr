@@ -24,6 +24,10 @@ Run `bin/install`. It builds the binary, keeps the old one as
 `cloudflare-token-mint.previous`, and binds the Keychain item to the new
 binary. macOS asks for your login keychain password during the bind.
 
+The bind does not update the item's partition list. On the first mint after an
+install, macOS asks for your login password once. Enter it and click
+**Always Allow**. Later mints need only Touch ID.
+
 ## Mint a child token
 
 ```sh

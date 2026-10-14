@@ -138,7 +138,7 @@ private struct CloudflareTokenMint {
             print("  Permissions: \(requestedPermissions.joined(separator: ", "))")
             print("  Expires: \(arguments.expiresOn.map(cloudflareTimestamp) ?? "never")")
             print("  Allowed IPs: \(arguments.allowedIPs.isEmpty ? "any" : arguments.allowedIPs.joined(separator: ", "))")
-            print("  Destination: Infisical \(arguments.infisicalPath)/\(arguments.infisicalSecret)")
+            print("  Destination: Infisical \(arguments.infisicalPath == "/" ? "" : arguments.infisicalPath)/\(arguments.infisicalSecret)")
             print("Waiting for local approval…")
 
             try await requireUserApproval(
