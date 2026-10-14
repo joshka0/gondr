@@ -17,7 +17,6 @@ Usage:
   infra-token-factory mint planetscale <options>
   infra-token-factory revoke planetscale --org <org> --name <token-name>
   infra-token-factory mint fly <options>
-  infra-token-factory revoke fly --org <org> [--app <app>] --name <token-name>
   infra-token-factory exec fly --org <org> -- <command> [args...]
   infra-token-factory mint tailscale <options>
   infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
@@ -52,7 +51,6 @@ struct InfraTokenFactory {
             case ("import", "hetzner"): try await Hetzner.importParent(rest)
             case ("check", "hetzner"): try await Hetzner.check(rest)
             case ("mint", "fly"): try await Fly.mint(rest)
-            case ("revoke", "fly"): try await Fly.revoke(rest)
             case ("exec", "fly"): try await Fly.exec(rest)
             case ("import", "fly"): try await Fly.importParent(rest)
             case ("check", "fly"): try await Fly.check(rest)

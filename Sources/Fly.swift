@@ -1,8 +1,11 @@
 import Foundation
 
-/// Fly.io tokens, minted through the GraphQL API with a parent org token kept
-/// in Keychain item `gondr-token.fly` / `<org>` as the
-/// `FlyV1 fm2_…` Authorization header value.
+/// Fly.io tokens. The parent org token lives in Keychain item
+/// `gondr-token.fly` / `<org>` as the `FlyV1 fm2_…` header
+/// value. Fly refuses token creation through the API for org tokens, so a
+/// child is the parent attenuated offline (`fly tokens attenuate`) to one app
+/// and a validity window. A child cannot be revoked alone: revoking the parent
+/// revokes every child, so expiry is the bound.
 enum Fly {
     private static let endpoint = URL(string: "https://api.fly.io/graphql")!
 
@@ -16,37 +19,17 @@ enum Fly {
     }
 
     private struct OrgData: Decodable {
-        struct Org: Decodable {
-            let id: String
-            let limitedAccessTokens: Tokens?
-        }
-        struct Tokens: Decodable { let nodes: [Token] }
-        struct Token: Decodable {
-            let id: String
-            let name: String?
-            let revokedAt: String?
-        }
+        struct Org: Decodable { let id: String }
         let organization: Org?
     }
 
     private struct AppData: Decodable {
         struct App: Decodable {
             let name: String
-            let limitedAccessTokens: OrgData.Tokens?
+            let internalNumericId: UInt64?
         }
         let app: App?
     }
-
-    private struct CreateData: Decodable {
-        struct Payload: Decodable { let limitedAccessToken: Token }
-        struct Token: Decodable {
-            let id: String
-            let tokenHeader: String
-        }
-        let createLimitedAccessToken: Payload
-    }
-
-    private struct DeleteData: Decodable {}
 
     private static func parent(_ org: String) -> KeychainItem {
         KeychainItem(service: "gondr-token.fly", account: org)
@@ -97,75 +80,64 @@ enum Fly {
         print("keychain_account=\(org)")
     }
 
-    /// An app-scoped deploy token (profile `deploy`) for one existing app.
+    /// The parent attenuated to one existing app (all actions on it, read-only
+    /// on the rest of the org) and a validity window of at most 30 days.
     static func mint(_ arguments: [String]) async throws {
         let options = try Options(
             arguments,
-            allowed: ["--org", "--app", "--name", "--expires-in",
+            allowed: ["--org", "--app", "--expires-in",
                       "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret"]
         )
         let org = try validSlug(try options.required("--org"), "--org")
         let app = try validSlug(try options.required("--app"), "--app")
-        let name = try options.required("--name")
-        guard let expiresIn = try parseExpiry(try options.required("--expires-in")) else {
-            throw FactoryError.message("Fly tokens need a finite --expires-in")
+        guard let expiresIn = try parseExpiry(try options.required("--expires-in")), expiresIn <= 30 * 86400 else {
+            throw FactoryError.message("Fly children cannot be revoked alone: give --expires-in of 30d or less")
         }
         let destination = try InfisicalDestination(options)
         let secret = try options.required("--infisical-secret")
-        guard name.count <= 120, isSecretName(secret) else {
+        guard isSecretName(secret) else {
             throw FactoryError.message("One or more arguments have an invalid shape")
         }
 
-        let hours = Int(expiresIn / 3600)
+        let now = Int(Date().timeIntervalSince1970)
+        let notAfter = now + Int(expiresIn)
         print("Fly token request")
         print("  Org: \(org)")
-        print("  App: \(app) (deploy)")
-        print("  Name: \(name)")
-        print("  Expires: \(iso8601(Date().addingTimeInterval(expiresIn)))")
+        print("  App: \(app) (all actions; rest of org read-only)")
+        print("  Expires: \(iso8601(Date(timeIntervalSince1970: TimeInterval(notAfter)))) (cannot be revoked alone)")
         print("  Destination: \(destination.label(secret))")
         print("Waiting for local approval…")
         fflush(stdout)
         try await requireUserApproval(
-            reason: "Create Fly deploy token \(name) for app \(app) in \(org), expiring in \(hours)h, and store it as \(secret)."
+            reason: "Create a Fly token for app \(app) in \(org), valid \(Int(expiresIn / 3600))h and not revocable alone, and store it as \(secret)."
         )
         var (data, auth) = try readParent(org)
         defer { data.resetBytes(in: 0..<data.count) }
 
-        let orgData: OrgData = try await query(
-            "query($slug: String!) { organization(slug: $slug) { id } }", ["slug": org], auth: auth
+        let found: AppData = try await query(
+            "query($name: String!) { app(name: $name) { name internalNumericId } }", ["name": app], auth: auth
         )
-        guard let orgID = orgData.organization?.id else {
-            throw FactoryError.message("The parent cannot see org \(org)")
+        guard let appID = found.app?.internalNumericId.map(String.init) else {
+            throw FactoryError.message("The parent cannot see app \(app)")
         }
-        let created: CreateData = try await query(
-            """
-            mutation($name: String!, $organizationId: ID!, $profile: String!, $profileParams: JSON, $expiry: String!) {
-              createLimitedAccessToken(input: {name: $name, organizationId: $organizationId, profile: $profile, profileParams: $profileParams, expiry: $expiry}) {
-                limitedAccessToken { id tokenHeader }
-              }
-            }
-            """,
-            ["name": name, "organizationId": orgID, "profile": "deploy",
-             "profileParams": ["app_id": app], "expiry": "\(hours)h"],
-            auth: auth
+        let caveats: [[String: Any]] = [
+            ["type": "ValidityWindow", "body": ["not_before": now - 60, "not_after": notAfter]],
+            // Access that names an app must name this app; other org access is read-only.
+            ["type": "IfPresent", "body": [
+                "ifs": [["type": "Apps", "body": ["apps": [appID: "*"]]]],
+                "else": "r",
+            ]],
+        ]
+        let child = try attenuate(parent: auth, caveats: try JSONSerialization.data(withJSONObject: caveats))
+
+        // The child must read its own app.
+        let readBack: AppData = try await query(
+            "query($name: String!) { app(name: $name) { name } }", ["name": app], auth: child
         )
-        let child = created.createLimitedAccessToken.limitedAccessToken
-        do {
-            // The child must read its own app.
-            let readBack: AppData = try await query(
-                "query($name: String!) { app(name: $name) { name } }", ["name": app], auth: child.tokenHeader
-            )
-            guard readBack.app?.name == app else {
-                throw FactoryError.message("The child cannot read app \(app)")
-            }
-            try destination.store(child.tokenHeader, as: secret)
-        } catch {
-            let _: DeleteData? = try? await query(
-                "mutation($input: DeleteLimitedAccessTokenInput!) { deleteLimitedAccessToken(input: $input) { token } }",
-                ["input": ["id": child.id]], auth: auth
-            )
-            throw FactoryError.message("Derived token was revoked because its check or vault write failed: \(error)")
+        guard readBack.app?.name == app else {
+            throw FactoryError.message("The child cannot read app \(app); it was not stored and expires on its own")
         }
+        try destination.store(child, as: secret)
 
         print("mint=complete")
         print("derived_token_verified=true")
@@ -173,49 +145,30 @@ enum Fly {
         print("parent_exposed=false")
     }
 
-    /// Revokes the one live token with this exact name, among the app's
-    /// tokens when `--app` is given, else among the org's.
-    static func revoke(_ arguments: [String]) async throws {
-        let options = try Options(arguments, allowed: ["--org", "--app", "--name"])
-        let org = try validSlug(try options.required("--org"), "--org")
-        let app = try options.optional("--app").map { try validSlug($0, "--app") }
-        let name = try options.required("--name")
-        guard name.count <= 120 else { throw FactoryError.message("--name is too long") }
-
-        print("Fly token revocation")
-        print("  Org: \(org)")
-        if let app { print("  App: \(app)") }
-        print("  Name: \(name)")
-        print("Waiting for local approval…")
-        fflush(stdout)
-        try await requireUserApproval(reason: "Revoke the Fly token \(name) in \(org).")
-        var (data, auth) = try readParent(org)
-        defer { data.resetBytes(in: 0..<data.count) }
-
-        let tokens: [OrgData.Token]
-        if let app {
-            let result: AppData = try await query(
-                "query($name: String!) { app(name: $name) { name limitedAccessTokens { nodes { id name revokedAt } } } }",
-                ["name": app], auth: auth
-            )
-            tokens = result.app?.limitedAccessTokens?.nodes ?? []
-        } else {
-            let result: OrgData = try await query(
-                "query($slug: String!) { organization(slug: $slug) { id limitedAccessTokens { nodes { id name revokedAt } } } }",
-                ["slug": org], auth: auth
-            )
-            tokens = result.organization?.limitedAccessTokens?.nodes ?? []
+    /// Runs `fly tokens attenuate` with the parent in its environment and the
+    /// caveats on stdin, and returns the child as a `FlyV1 …` header value.
+    private static func attenuate(parent: String, caveats: Data) throws -> String {
+        let process = Process()
+        let input = Pipe()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/fly")
+        process.arguments = ["tokens", "attenuate"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["FLY_API_TOKEN"] = parent
+        process.environment = environment
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        input.fileHandleForWriting.write(caveats)
+        try input.fileHandleForWriting.close()
+        let produced = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let token = String(decoding: produced, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard process.terminationStatus == 0, token.hasPrefix("FlyV1 fm2_") else {
+            throw FactoryError.message("fly tokens attenuate failed (exit \(process.terminationStatus))")
         }
-        let found = tokens.filter { $0.name == name && $0.revokedAt == nil }
-        guard found.count == 1 else {
-            throw FactoryError.message("Expected one live token named \(name), found \(found.count)")
-        }
-        let _: DeleteData = try await query(
-            "mutation($input: DeleteLimitedAccessTokenInput!) { deleteLimitedAccessToken(input: $input) { token } }",
-            ["input": ["id": found[0].id]], auth: auth
-        )
-        print("revoke=complete")
-        print("parent_exposed=false")
+        return token
     }
 
     /// `--org <slug> -- <command> [args...]`: run one approved command with
@@ -242,10 +195,17 @@ enum Fly {
         guard let http = response as? HTTPURLResponse else {
             throw FactoryError.message("Fly returned no HTTP response")
         }
-        let decoded = try? JSONDecoder().decode(GraphQLResponse<T>.self, from: data)
-        guard (200..<300).contains(http.statusCode), let decoded, decoded.errors?.isEmpty ?? true, let result = decoded.data else {
-            let message = decoded?.errors?.map(\.message).joined(separator: "; ") ?? ""
-            throw FactoryError.message("Fly HTTP \(http.statusCode): \(message)")
+        let operation = text.split(separator: "{").first.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } ?? "query"
+        let decoded: GraphQLResponse<T>
+        do {
+            decoded = try JSONDecoder().decode(GraphQLResponse<T>.self, from: data)
+        } catch {
+            // A DecodingError names field paths, never values.
+            throw FactoryError.message("Fly HTTP \(http.statusCode) for \(operation): unexpected response shape: \(error)")
+        }
+        guard (200..<300).contains(http.statusCode), decoded.errors?.isEmpty ?? true, let result = decoded.data else {
+            let message = decoded.errors?.map(\.message).joined(separator: "; ") ?? "no data"
+            throw FactoryError.message("Fly HTTP \(http.statusCode) for \(operation): \(message)")
         }
         return result
     }
