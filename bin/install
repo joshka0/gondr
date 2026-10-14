@@ -1,0 +1,17 @@
+#!/bin/sh
+# Build the broker, install it, and bind the Keychain item to the new binary.
+# A rebuilt binary has a new code hash, so the old Keychain ACL no longer trusts it.
+set -eu
+cd "$(dirname "$0")/.."
+dest="$HOME/.local/share/cloudflare-token-mint"
+mkdir -p build "$dest" "$HOME/.local/bin"
+xcrun swiftc -O -parse-as-library Sources/main.swift -o build/cloudflare-token-mint
+xcrun swiftc -O Sources/bind-access.swift -o build/bind-access
+if [ -f "$dest/cloudflare-token-mint" ]; then
+  cp -p "$dest/cloudflare-token-mint" "$dest/cloudflare-token-mint.previous"
+fi
+install -m 711 build/cloudflare-token-mint "$dest/cloudflare-token-mint"
+printf '#!/bin/sh\nexec "$HOME/.local/share/cloudflare-token-mint/cloudflare-token-mint" "$@"\n' > "$HOME/.local/bin/cloudflare-token-mint"
+chmod 755 "$HOME/.local/bin/cloudflare-token-mint"
+# macOS asks for your login keychain password here.
+build/bind-access
