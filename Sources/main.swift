@@ -35,6 +35,11 @@ private struct VerifyResult: Decodable {
     let status: String
 }
 
+private struct ListedToken: Decodable {
+    let id: String
+    let name: String
+}
+
 private struct Arguments {
     let tokenName: String
     /// Absent for an account-only mint: zone flags and zone permissions are
@@ -44,6 +49,9 @@ private struct Arguments {
     let zoneID: String?
     let accountPermissions: [String]
     let zonePermissions: [String]
+    /// Nil only for an explicit `--expires-in never`.
+    let expiresOn: Date?
+    let allowedIPs: [String]
     let infisicalProject: String
     let infisicalEnvironment: String
     let infisicalPath: String
@@ -114,6 +122,11 @@ private struct CloudflareTokenMint {
                 return
             }
 
+            if rawArguments.first == "--revoke" {
+                try await revoke(rawArguments)
+                return
+            }
+
             let arguments = try parseArguments(rawArguments)
             try validate(arguments)
 
@@ -123,11 +136,13 @@ private struct CloudflareTokenMint {
             print("  Name: \(arguments.tokenName)")
             print("  Zone: \(zoneLabel)")
             print("  Permissions: \(requestedPermissions.joined(separator: ", "))")
+            print("  Expires: \(arguments.expiresOn.map(cloudflareTimestamp) ?? "never")")
+            print("  Allowed IPs: \(arguments.allowedIPs.isEmpty ? "any" : arguments.allowedIPs.joined(separator: ", "))")
             print("  Destination: Infisical \(arguments.infisicalPath)/\(arguments.infisicalSecret)")
             print("Waiting for local approval…")
 
             try await requireUserApproval(
-                reason: "Create \(arguments.tokenName) for \(zoneLabel) and store it as \(arguments.infisicalSecret)."
+                reason: "Create \(arguments.tokenName) for \(zoneLabel), expiring \(arguments.expiresOn.map(cloudflareTimestamp) ?? "never"), and store it as \(arguments.infisicalSecret)."
             )
             var bootstrap = try readBootstrapCredential()
             defer { bootstrap.resetBytes(in: 0..<bootstrap.count) }
@@ -173,6 +188,7 @@ private struct CloudflareTokenMint {
         var scalars: [String: String] = [:]
         var accountPermissions: [String] = []
         var zonePermissions: [String] = []
+        var allowedIPs: [String] = []
         var index = 0
 
         while index < values.count {
@@ -184,6 +200,7 @@ private struct CloudflareTokenMint {
             switch key {
             case "--account-permission": accountPermissions.append(value)
             case "--zone-permission": zonePermissions.append(value)
+            case "--allow-ip": allowedIPs.append(value)
             default:
                 guard scalars[key] == nil else {
                     throw MintError.message("Duplicate option: \(key)")
@@ -212,11 +229,49 @@ private struct CloudflareTokenMint {
             zoneID: optional("--zone-id"),
             accountPermissions: accountPermissions,
             zonePermissions: zonePermissions,
+            expiresOn: try parseExpiry(try required("--expires-in")),
+            allowedIPs: allowedIPs,
             infisicalProject: try required("--infisical-project"),
             infisicalEnvironment: try required("--infisical-env"),
             infisicalPath: try required("--infisical-path"),
             infisicalSecret: try required("--infisical-secret")
         )
+    }
+
+    /// `<N>h` or `<N>d` from now, or `never`. A long-lived token is always an
+    /// explicit choice.
+    private static func parseExpiry(_ value: String) throws -> Date? {
+        if value == "never" { return nil }
+        guard value.range(of: "^[1-9][0-9]{0,3}[hd]$", options: .regularExpression) != nil,
+              let amount = Double(value.dropLast()) else {
+            throw MintError.message("--expires-in takes <N>h, <N>d, or never")
+        }
+        let hours = value.hasSuffix("d") ? amount * 24 : amount
+        return Date().addingTimeInterval(hours * 3600)
+    }
+
+    private static func cloudflareTimestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+    }
+
+    /// An IPv4 or IPv6 address with an optional prefix length.
+    private static func isCIDR(_ value: String) -> Bool {
+        let parts = value.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count <= 2, let address = parts.first.map(String.init) else { return false }
+        var buffer = [UInt8](repeating: 0, count: 16)
+        let family: Int32
+        if inet_pton(AF_INET, address, &buffer) == 1 {
+            family = AF_INET
+        } else if inet_pton(AF_INET6, address, &buffer) == 1 {
+            family = AF_INET6
+        } else {
+            return false
+        }
+        guard parts.count == 2 else { return true }
+        guard let prefix = Int(parts[1]) else { return false }
+        return (0...(family == AF_INET ? 32 : 128)).contains(prefix)
     }
 
     private static func validate(_ arguments: Arguments) throws {
@@ -241,6 +296,10 @@ private struct CloudflareTokenMint {
               !arguments.infisicalPath.contains(".."),
               arguments.infisicalSecret.range(of: "^[A-Z][A-Z0-9_]+$", options: .regularExpression) != nil else {
             throw MintError.message("One or more arguments have an invalid shape")
+        }
+
+        guard arguments.allowedIPs.count <= 16, arguments.allowedIPs.allSatisfy(isCIDR) else {
+            throw MintError.message("--allow-ip takes up to sixteen IPv4 or IPv6 addresses or CIDR ranges")
         }
 
         let permissions = arguments.accountPermissions + arguments.zonePermissions
@@ -285,10 +344,11 @@ private struct CloudflareTokenMint {
     private static func request<T: Decodable>(
         _ path: String,
         method: String = "GET",
+        query: [URLQueryItem] = [],
         token: String,
         body: Data? = nil
     ) async throws -> T {
-        var request = URLRequest(url: apiBase.appending(path: path))
+        var request = URLRequest(url: apiBase.appending(path: path).appending(queryItems: query))
         request.httpMethod = method
         request.httpBody = body
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -379,10 +439,17 @@ private struct CloudflareTokenMint {
                 ),
             ])
         }
-        return try JSONSerialization.data(withJSONObject: [
+        var payload: [String: Any] = [
             "name": arguments.tokenName,
             "policies": policies,
-        ])
+        ]
+        if let expiresOn = arguments.expiresOn {
+            payload["expires_on"] = cloudflareTimestamp(expiresOn)
+        }
+        if !arguments.allowedIPs.isEmpty {
+            payload["condition"] = ["request_ip": ["in": arguments.allowedIPs]]
+        }
+        return try JSONSerialization.data(withJSONObject: payload)
     }
 
     private static func createToken(
@@ -421,6 +488,50 @@ private struct CloudflareTokenMint {
     }
 
     private struct EmptyResult: Decodable {}
+
+    /// `--revoke <token-name> --account-id <id>`: delete the one account token
+    /// with that exact name. Fails closed on zero or several matches.
+    private static func revoke(_ values: [String]) async throws {
+        guard values.count == 4, values[0] == "--revoke", values[2] == "--account-id" else {
+            throw MintError.message("Usage: --revoke <token-name> --account-id <id>")
+        }
+        let name = values[1]
+        let accountID = values[3]
+        guard !name.isEmpty, name.count <= 120,
+              accountID.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil else {
+            throw MintError.message("One or more arguments have an invalid shape")
+        }
+
+        print("Cloudflare token revocation")
+        print("  Name: \(name)")
+        print("Waiting for local approval…")
+        try await requireUserApproval(reason: "Revoke the Cloudflare token \(name).")
+        var bootstrap = try readBootstrapCredential()
+        defer { bootstrap.resetBytes(in: 0..<bootstrap.count) }
+        let bootstrapToken = String(decoding: bootstrap, as: UTF8.self)
+
+        var matches: [ListedToken] = []
+        var page = 1
+        while true {
+            let listed: [ListedToken] = try await request(
+                "accounts/\(accountID)/tokens",
+                query: [
+                    URLQueryItem(name: "per_page", value: "50"),
+                    URLQueryItem(name: "page", value: String(page)),
+                ],
+                token: bootstrapToken
+            )
+            matches += listed.filter { $0.name == name }
+            if listed.count < 50 { break }
+            page += 1
+        }
+        guard matches.count == 1 else {
+            throw MintError.message("Expected one token named \(name), found \(matches.count)")
+        }
+        try await revokeToken(id: matches[0].id, accountID: accountID, bootstrapToken: bootstrapToken)
+        print("revoke=complete")
+        print("bootstrap_exposed=false")
+    }
 
     private static func storeInInfisical(_ token: String, arguments: Arguments) throws {
         let process = Process()
