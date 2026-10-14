@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Account-owned Cloudflare tokens, minted with the parent in Keychain item
@@ -46,9 +47,10 @@ enum Cloudflare {
     static func mint(_ arguments: [String]) async throws {
         let options = try Options(
             arguments,
-            allowed: ["--name", "--zone", "--account-id", "--zone-id", "--expires-in",
-                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret"],
-            repeatable: ["--account-permission", "--zone-permission", "--allow-ip"]
+            allowed: ["--name", "--zone", "--account-id", "--zone-id", "--expires-in", "--r2-jurisdiction",
+                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret",
+                      "--r2-s3-secret-prefix"],
+            repeatable: ["--account-permission", "--zone-permission", "--allow-ip", "--r2-bucket", "--bucket-permission"]
         )
         let name = try options.required("--name")
         let accountID = try options.required("--account-id")
@@ -57,6 +59,10 @@ enum Cloudflare {
         let accountPermissions = options.all("--account-permission")
         let zonePermissions = options.all("--zone-permission")
         let allowedIPs = options.all("--allow-ip")
+        let buckets = options.all("--r2-bucket")
+        let bucketPermissions = options.all("--bucket-permission")
+        let jurisdiction = options.optional("--r2-jurisdiction") ?? "default"
+        let s3Prefix = options.optional("--r2-s3-secret-prefix")
         let expiresIn = try parseExpiry(try options.required("--expires-in"))
         let destination = try InfisicalDestination(options)
         let secret = try options.required("--infisical-secret")
@@ -66,6 +72,18 @@ enum Cloudflare {
         guard (zoneName != nil || zoneID != nil) == !zonePermissions.isEmpty,
               (zoneName != nil) == (zoneID != nil) else {
             throw FactoryError.message("Zone name, zone id, and zone permissions are both-or-neither")
+        }
+        guard buckets.isEmpty == bucketPermissions.isEmpty else {
+            throw FactoryError.message("--r2-bucket and --bucket-permission are both-or-neither")
+        }
+        guard s3Prefix == nil || !buckets.isEmpty else {
+            throw FactoryError.message("--r2-s3-secret-prefix needs --r2-bucket")
+        }
+        guard buckets.count <= 16,
+              buckets.allSatisfy({ matches($0, "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$") }),
+              ["default", "eu", "fedramp"].contains(jurisdiction),
+              s3Prefix.map({ isSecretName("\($0)_ACCESS_KEY_ID") }) ?? true else {
+            throw FactoryError.message("R2 bucket, jurisdiction, or S3 secret prefix has an invalid shape")
         }
         guard name.count <= 120,
               zoneName.map({ matches($0, "^[A-Za-z0-9.-]+$") }) ?? true,
@@ -77,7 +95,7 @@ enum Cloudflare {
         guard allowedIPs.count <= 16, allowedIPs.allSatisfy(isCIDR) else {
             throw FactoryError.message("--allow-ip takes up to sixteen IPv4 or IPv6 addresses or CIDR ranges")
         }
-        let permissions = accountPermissions + zonePermissions
+        let permissions = accountPermissions + zonePermissions + bucketPermissions
         guard !permissions.isEmpty, permissions.count <= 12 else {
             throw FactoryError.message("Request between one and twelve permissions")
         }
@@ -91,8 +109,12 @@ enum Cloudflare {
         print("  Zone: \(zoneName ?? "(account-only)")")
         print("  Permissions: \(permissions.joined(separator: ", "))")
         print("  Expires: \(expiresOn ?? "never")")
+        if !buckets.isEmpty { print("  R2 buckets (\(jurisdiction)): \(buckets.joined(separator: ", "))") }
         print("  Allowed IPs: \(allowedIPs.isEmpty ? "any" : allowedIPs.joined(separator: ", "))")
         print("  Destination: \(destination.label(secret))")
+        if let s3Prefix {
+            print("  S3 keys: \(destination.label("\(s3Prefix)_ACCESS_KEY_ID")), \(destination.label("\(s3Prefix)_SECRET_ACCESS_KEY"))")
+        }
         print("Waiting for local approval…")
         fflush(stdout)
         try await requireUserApproval(
@@ -121,6 +143,19 @@ enum Cloudflare {
                 ),
             ])
         }
+        if !buckets.isEmpty {
+            var resources: [String: String] = [:]
+            for bucket in buckets {
+                resources["com.cloudflare.edge.r2.bucket.\(accountID)_\(jurisdiction)_\(bucket)"] = "*"
+            }
+            policies.append([
+                "effect": "allow",
+                "resources": resources,
+                "permission_groups": try await groupIDs(
+                    bucketPermissions, scope: "com.cloudflare.edge.r2.bucket", accountID: accountID, token: parentToken
+                ),
+            ])
+        }
         var payload: [String: Any] = ["name": name, "policies": policies]
         if let expiresOn { payload["expires_on"] = expiresOn }
         if !allowedIPs.isEmpty { payload["condition"] = ["request_ip": ["in": allowedIPs]] }
@@ -137,6 +172,12 @@ enum Cloudflare {
                 throw FactoryError.message("Derived Cloudflare token is not active")
             }
             try destination.store(created.value, as: secret)
+            if let s3Prefix {
+                // R2 S3 keys: the token ID, and the SHA-256 hex of the token value.
+                let secretKey = SHA256.hash(data: Data(created.value.utf8)).map { String(format: "%02x", $0) }.joined()
+                try destination.store(created.id, as: "\(s3Prefix)_ACCESS_KEY_ID")
+                try destination.store(secretKey, as: "\(s3Prefix)_SECRET_ACCESS_KEY")
+            }
         } catch {
             let _: EmptyResult? = try? await request(
                 "accounts/\(accountID)/tokens/\(created.id)", method: "DELETE", token: parentToken

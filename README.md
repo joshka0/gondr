@@ -44,9 +44,10 @@ infra-token-factory import hetzner --project <label>
 infra-token-factory mint cloudflare --name <token-name> --account-id <id> \
   --account-permission <name> [--account-permission ...] \
   [--zone <zone> --zone-id <id> --zone-permission <name> ...] \
+  [--r2-bucket <bucket> ... --bucket-permission <name> ... [--r2-jurisdiction default|eu|fedramp]] \
   --expires-in <N>h|<N>d|never [--allow-ip <cidr> ...] \
   --infisical-project <id> --infisical-env <env> --infisical-path <path> \
-  --infisical-secret CLOUDFLARE_<CAPABILITY>_API_TOKEN
+  --infisical-secret CLOUDFLARE_<CAPABILITY>_API_TOKEN [--r2-s3-secret-prefix <PREFIX>]
 
 infra-token-factory mint planetscale --org <org> --name <token-name> \
   [--org-access <access> ...] [--database <db> --database-access <access> ...] \
@@ -58,6 +59,10 @@ infra-token-factory mint planetscale --org <org> --name <token-name> \
 - `--expires-in` is required. Use `never` only for a token that must outlive a
   rotation cycle.
 - A child can never manage API tokens or service tokens.
+- `--r2-bucket` limits bucket permissions (for example
+  `Workers R2 Storage Bucket Item Write`) to the named buckets.
+- `--r2-s3-secret-prefix` also writes R2 S3 keys: `<PREFIX>_ACCESS_KEY_ID` (the
+  token ID) and `<PREFIX>_SECRET_ACCESS_KEY` (the SHA-256 hex of the token).
 - PlanetScale writes `<prefix>_SERVICE_TOKEN_ID` and `<prefix>_SERVICE_TOKEN`.
 - If a grant, check, or vault write fails, the factory deletes the child.
 
