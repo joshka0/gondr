@@ -20,6 +20,10 @@ enum PlanetScale {
         let access: String
     }
 
+    private struct NamedOrg: Decodable {
+        let name: String
+    }
+
     private struct DataList<T: Decodable>: Decodable {
         let data: [T]
     }
@@ -39,9 +43,30 @@ enum PlanetScale {
         return org
     }
 
+    /// Reports presence, then the HTTP status of two parent reads: the
+    /// org itself and its service-token list. Never prints a body.
     static func check(_ arguments: [String]) async throws {
         let options = try Options(arguments, allowed: ["--org"])
-        try await parent(try validOrg(try options.required("--org"))).check()
+        let org = try validOrg(try options.required("--org"))
+        try await parent(org).check()
+        var parentData = try parent(org).read()
+        defer { parentData.resetBytes(in: 0..<parentData.count) }
+        let auth = String(decoding: parentData, as: UTF8.self)
+        var listRequest = URLRequest(url: apiBase.appending(path: "organizations"))
+        listRequest.setValue(auth, forHTTPHeaderField: "Authorization")
+        listRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (listData, listResponse) = try await URLSession.shared.data(for: listRequest)
+        print("organizations_http=\((listResponse as? HTTPURLResponse)?.statusCode ?? 0)")
+        if let orgs = try? JSONDecoder().decode(DataList<NamedOrg>.self, from: listData) {
+            print("visible_orgs=\(orgs.data.map(\.name).joined(separator: ","))")
+        }
+        for (label, path) in [("org", "organizations/\(org)"), ("service_tokens", "organizations/\(org)/service-tokens")] {
+            var request = URLRequest(url: apiBase.appending(path: path))
+            request.setValue(auth, forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (_, response) = try await URLSession.shared.data(for: request)
+            print("\(label)_http=\((response as? HTTPURLResponse)?.statusCode ?? 0)")
+        }
     }
 
     static func importParent(_ arguments: [String]) async throws {
@@ -53,7 +78,12 @@ enum PlanetScale {
             id.resetBytes(in: 0..<id.count)
             token.resetBytes(in: 0..<token.count)
         }
-        guard !id.contains(UInt8(ascii: ":")) else { throw FactoryError.message("The token ID may not contain ':'") }
+        guard !id.contains(UInt8(ascii: ":")), !id.starts(with: Data("pscale_".utf8)) else {
+            throw FactoryError.message("The first value must be the token ID (a short string), not the token")
+        }
+        guard token.starts(with: Data("pscale_tkn_".utf8)) else {
+            throw FactoryError.message("The second value must be the token, which starts with pscale_tkn_")
+        }
         try await requireUserApproval(reason: "Store the PlanetScale parent service token for \(org) in Keychain.")
         try parent(org).write(id + Data(":".utf8) + token)
         print("import=complete")
