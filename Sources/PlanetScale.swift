@@ -91,56 +91,43 @@ enum PlanetScale {
         print("keychain_account=\(org)")
     }
 
-    static func mint(_ arguments: [String]) async throws {
-        let options = try Options(
-            arguments,
-            allowed: ["--org", "--name", "--expires-in", "--database",
-                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret-prefix"],
-            repeatable: ["--org-access", "--database-access"]
-        )
-        let org = try validOrg(try options.required("--org"))
-        let name = try options.required("--name")
-        let expiresIn = try parseExpiry(try options.required("--expires-in"))
-        let database = options.optional("--database")
-        let orgAccess = options.all("--org-access")
-        let databaseAccess = options.all("--database-access")
-        let destination = try InfisicalDestination(options)
-        let prefix = try options.required("--infisical-secret-prefix")
-        let idSecret = "\(prefix)_SERVICE_TOKEN_ID"
-        let tokenSecret = "\(prefix)_SERVICE_TOKEN"
+    /// The accesses a child asks for, validated once for `mint` and `exec`.
+    private struct Grant {
+        let orgAccess: [String]
+        let database: String?
+        let databaseAccess: [String]
+        var all: [String] { orgAccess + databaseAccess }
 
-        guard (database != nil) == !databaseAccess.isEmpty else {
-            throw FactoryError.message("--database and --database-access are both-or-neither")
-        }
-        let accesses = orgAccess + databaseAccess
-        guard name.count <= 120,
-              database.map({ matches($0, "^[A-Za-z0-9_-]{1,64}$") }) ?? true,
-              accesses.allSatisfy({ matches($0, "^[a-z_]+$") }),
-              isSecretName(idSecret) else {
-            throw FactoryError.message("One or more arguments have an invalid shape")
-        }
-        guard !accesses.isEmpty, accesses.count <= 24 else {
-            throw FactoryError.message("Request between one and twenty-four accesses")
-        }
-        guard accesses.allSatisfy({ !$0.contains("service_token") }) else {
-            throw FactoryError.message("Derived tokens may not manage service tokens")
+        init(_ options: Options) throws {
+            orgAccess = options.all("--org-access")
+            database = options.optional("--database")
+            databaseAccess = options.all("--database-access")
+            guard (database != nil) == !databaseAccess.isEmpty else {
+                throw FactoryError.message("--database and --database-access are both-or-neither")
+            }
+            guard database.map({ matches($0, "^[A-Za-z0-9_-]{1,64}$") }) ?? true,
+                  all.allSatisfy({ matches($0, "^[a-z_]+$") }) else {
+                throw FactoryError.message("One or more arguments have an invalid shape")
+            }
+            guard !all.isEmpty, all.count <= 24 else {
+                throw FactoryError.message("Request between one and twenty-four accesses")
+            }
+            guard all.allSatisfy({ !$0.contains("service_token") }) else {
+                throw FactoryError.message("Derived tokens may not manage service tokens")
+            }
         }
 
-        let ttl = expiresIn.map { Int($0) }
-        print("PlanetScale service token request")
-        print("  Org: \(org)")
-        print("  Name: \(name)")
-        if !orgAccess.isEmpty { print("  Org access: \(orgAccess.joined(separator: ", "))") }
-        if let database { print("  Database \(database): \(databaseAccess.joined(separator: ", "))") }
-        print("  Expires: \(expiresIn.map { iso8601(Date().addingTimeInterval($0)) } ?? "never")")
-        print("  Destination: \(destination.label(idSecret)), \(destination.label(tokenSecret))")
-        try await requireUserApproval(
-            action: "create PlanetScale token \(name) in \(org) (\(accesses.joined(separator: ", "))) and store it as \(prefix)_SERVICE_TOKEN."
-        )
-        var parentData = try parent(org).read()
-        defer { parentData.resetBytes(in: 0..<parentData.count) }
-        let auth = String(decoding: parentData, as: UTF8.self)
+        func printLines() {
+            if !orgAccess.isEmpty { print("  Org access: \(orgAccess.joined(separator: ", "))") }
+            if let database { print("  Database \(database): \(databaseAccess.joined(separator: ", "))") }
+        }
+    }
 
+    /// Creates a child token, grants `grant`, and reads the grants back. On
+    /// any failure after the create, deletes the child and throws.
+    private static func createChild(
+        org: String, name: String, ttl: Int?, grant: Grant, auth: String
+    ) async throws -> (id: String, token: String) {
         var body: [String: Any] = ["name": name]
         if let ttl { body["ttl"] = ttl }
         let created: CreatedToken = try await request(
@@ -151,39 +138,140 @@ enum PlanetScale {
             guard let token = created.token, !token.isEmpty else {
                 throw FactoryError.message("PlanetScale returned no token value")
             }
-            if !orgAccess.isEmpty {
+            if !grant.orgAccess.isEmpty {
                 let _: DataList<Access> = try await request(
                     "organizations/\(org)/service-tokens/\(created.id)/access", method: "POST", auth: auth,
-                    body: try JSONSerialization.data(withJSONObject: ["access": orgAccess])
+                    body: try JSONSerialization.data(withJSONObject: ["access": grant.orgAccess])
                 )
             }
-            if let database {
+            if let database = grant.database {
                 let _: DataList<Access> = try await request(
                     "organizations/\(org)/service-tokens/\(created.id)/access", method: "POST", auth: auth,
-                    body: try JSONSerialization.data(withJSONObject: ["database": database, "access": databaseAccess])
+                    body: try JSONSerialization.data(withJSONObject: ["database": database, "access": grant.databaseAccess])
                 )
             }
             // Read the grants back: every requested access must be present.
             let granted: DataList<Access> = try await request(
                 "organizations/\(org)/service-tokens/\(created.id)/access", auth: auth
             )
-            let missing = Set(accesses).subtracting(granted.data.map(\.access))
+            let missing = Set(grant.all).subtracting(granted.data.map(\.access))
             guard missing.isEmpty else {
                 throw FactoryError.message("Grants missing after create: \(missing.sorted().joined(separator: ", "))")
             }
-            try destination.store(created.id, as: idSecret)
-            try destination.store(token, as: tokenSecret)
+            return (created.id, token)
         } catch {
-            let _: DataList<Access>? = try? await request(
-                "organizations/\(org)/service-tokens/\(created.id)", method: "DELETE", auth: auth
-            )
-            throw FactoryError.message("Derived token was deleted because a grant, check, or vault write failed: \(error)")
+            try? await deleteChild(org: org, id: created.id, auth: auth)
+            throw FactoryError.message("Derived token was deleted because a grant or check failed: \(error)")
+        }
+    }
+
+    private static func deleteChild(org: String, id: String, auth: String) async throws {
+        let _: DataList<Access>? = try await request(
+            "organizations/\(org)/service-tokens/\(id)", method: "DELETE", auth: auth
+        )
+    }
+
+    static func mint(_ arguments: [String]) async throws {
+        let options = try Options(
+            arguments,
+            allowed: ["--org", "--name", "--expires-in", "--database",
+                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret-prefix"],
+            repeatable: ["--org-access", "--database-access"]
+        )
+        let org = try validOrg(try options.required("--org"))
+        let name = try options.required("--name")
+        let expiresIn = try parseExpiry(try options.required("--expires-in"))
+        let grant = try Grant(options)
+        let destination = try InfisicalDestination(options)
+        let prefix = try options.required("--infisical-secret-prefix")
+        let idSecret = "\(prefix)_SERVICE_TOKEN_ID"
+        let tokenSecret = "\(prefix)_SERVICE_TOKEN"
+        guard name.count <= 120, isSecretName(idSecret) else {
+            throw FactoryError.message("One or more arguments have an invalid shape")
+        }
+
+        print("PlanetScale service token request")
+        print("  Org: \(org)")
+        print("  Name: \(name)")
+        grant.printLines()
+        print("  Expires: \(expiresIn.map { iso8601(Date().addingTimeInterval($0)) } ?? "never")")
+        print("  Destination: \(destination.label(idSecret)), \(destination.label(tokenSecret))")
+        try await requireUserApproval(
+            action: "create PlanetScale token \(name) in \(org) (\(grant.all.joined(separator: ", "))) and store it as \(prefix)_SERVICE_TOKEN."
+        )
+        var parentData = try parent(org).read()
+        defer { parentData.resetBytes(in: 0..<parentData.count) }
+        let auth = String(decoding: parentData, as: UTF8.self)
+
+        let child = try await createChild(org: org, name: name, ttl: expiresIn.map { Int($0) }, grant: grant, auth: auth)
+        do {
+            try destination.store(child.id, as: idSecret)
+            try destination.store(child.token, as: tokenSecret)
+        } catch {
+            try? await deleteChild(org: org, id: child.id, auth: auth)
+            throw FactoryError.message("Derived token was deleted because the vault write failed: \(error)")
         }
 
         print("mint=complete")
         print("grants_verified=true")
         print("infisical_secrets=\(idSecret),\(tokenSecret)")
         print("parent_exposed=false")
+    }
+
+    /// `--org <org> [--org-access a ...] [--database db --database-access a ...]
+    /// --expires-in <N>h -- <command>`: mints a child, runs one command with
+    /// `PLANETSCALE_SERVICE_TOKEN_ID`, `PLANETSCALE_SERVICE_TOKEN` and
+    /// `PLANETSCALE_ORG` set (read by `pscale`), then deletes the child. The
+    /// TTL ends the child if this process dies before the delete.
+    static func exec(_ arguments: [String]) async throws {
+        guard let separator = arguments.firstIndex(of: "--"), separator + 1 < arguments.count else {
+            throw FactoryError.message(
+                "Usage: exec planetscale --org <org> [--org-access <a>] [--database <db> --database-access <a>] --expires-in <N>h -- <command>"
+            )
+        }
+        let options = try Options(
+            Array(arguments[..<separator]), allowed: ["--org", "--expires-in", "--database"],
+            repeatable: ["--org-access", "--database-access"]
+        )
+        let org = try validOrg(try options.required("--org"))
+        guard let expiresIn = try parseExpiry(try options.required("--expires-in")), expiresIn <= 24 * 3600 else {
+            throw FactoryError.message("exec planetscale needs --expires-in of at most 24h")
+        }
+        let grant = try Grant(options)
+        let command = Array(arguments[(separator + 1)...])
+        let shown = command.joined(separator: " ")
+        let name = "factory-exec-\(Int(Date().timeIntervalSince1970))-\(getpid())"
+
+        print("Command request")
+        print("  Credential: PlanetScale child token in \(org), deleted when the command exits (TTL \(Int(expiresIn / 3600))h)")
+        grant.printLines()
+        print("  Command: \(shown)")
+        try await requireUserApproval(
+            action: "run with a PlanetScale token for \(org) (\(grant.all.joined(separator: ", "))): \(shown.count > 160 ? String(shown.prefix(160)) + "…" : shown)"
+        )
+        var parentData = try parent(org).read()
+        defer { parentData.resetBytes(in: 0..<parentData.count) }
+        let auth = String(decoding: parentData, as: UTF8.self)
+
+        let child = try await createChild(org: org, name: name, ttl: Int(expiresIn), grant: grant, auth: auth)
+        let status: Int32
+        do {
+            status = try runChild(command, environment: [
+                "PLANETSCALE_SERVICE_TOKEN_ID": child.id,
+                "PLANETSCALE_SERVICE_TOKEN": child.token,
+                "PLANETSCALE_ORG": org,
+            ])
+        } catch {
+            try? await deleteChild(org: org, id: child.id, auth: auth)
+            throw error
+        }
+        do {
+            try await deleteChild(org: org, id: child.id, auth: auth)
+            FileHandle.standardError.write(Data("planetscale_child=deleted\n".utf8))
+        } catch {
+            FileHandle.standardError.write(Data("planetscale_child=delete_failed name=\(name) (its TTL still ends it): \(error)\n".utf8))
+        }
+        exit(status)
     }
 
     /// Deletes the one service token with this exact name. Fails closed on

@@ -16,6 +16,7 @@ Usage (mint, revoke and exec also need --reason "<why>", before any --):
   infra-token-factory revoke cloudflare --name <token-name> --account-id <id>
   infra-token-factory mint planetscale <options>
   infra-token-factory revoke planetscale --org <org> --name <token-name>
+  infra-token-factory exec planetscale --org <org> [--org-access <a>] [--database <db> --database-access <a>] --expires-in <N>h -- <command>
   infra-token-factory mint fly <options>
   infra-token-factory exec fly --org <org> -- <command> [args...]
   infra-token-factory mint tailscale <options>
@@ -61,6 +62,7 @@ struct InfraTokenFactory {
             case ("check", "cloudflare"): try await Cloudflare.check(rest)
             case ("mint", "planetscale"): try await PlanetScale.mint(rest)
             case ("revoke", "planetscale"): try await PlanetScale.revoke(rest)
+            case ("exec", "planetscale"): try await PlanetScale.exec(rest)
             case ("import", "planetscale"): try await PlanetScale.importParent(rest)
             case ("check", "planetscale"): try await PlanetScale.check(rest)
             case ("exec", "hetzner"): try await Hetzner.exec(rest)
@@ -394,6 +396,26 @@ func runWithSecret(_ item: KeychainItem, env: String, label: String, command: [S
     let value = String(decoding: secret, as: UTF8.self)
     secret.resetBytes(in: 0..<secret.count)
     try execWithEnvironment([env: value], command: command)
+}
+
+/// Runs the command as a child with extra variables and returns its exit
+/// status (128 + signal when killed). This process ignores SIGINT and SIGHUP
+/// and forwards SIGTERM, so it lives to clean up after the child.
+func runChild(_ command: [String], environment: [String: String]) throws -> Int32 {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = command
+    process.environment = ProcessInfo.processInfo.environment.merging(environment) { $1 }
+    signal(SIGINT, SIG_IGN)
+    signal(SIGHUP, SIG_IGN)
+    signal(SIGTERM, SIG_IGN)
+    let forward = DispatchSource.makeSignalSource(signal: SIGTERM)
+    forward.setEventHandler { process.terminate() }
+    forward.resume()
+    defer { forward.cancel() }
+    try process.run()
+    process.waitUntilExit()
+    return process.terminationReason == .uncaughtSignal ? 128 + process.terminationStatus : process.terminationStatus
 }
 
 /// Sets the variables and replaces this process with the command.

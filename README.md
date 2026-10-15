@@ -7,7 +7,7 @@ Keychain. The binary never prints them.
 | Provider | Mode | Keychain item (service / account) |
 | --- | --- | --- |
 | Cloudflare | Mint an account-owned child token into Infisical | `gondr-token.cloudflare` / `bootstrap` |
-| PlanetScale | Mint a child service token into Infisical | `gondr-token.planetscale` / `<org>` |
+| PlanetScale | Mint a child service token into Infisical, or run one approved command with a child that is deleted when the command exits | `gondr-token.planetscale` / `<org>` |
 | Hetzner Cloud | Run one approved command with `HCLOUD_TOKEN` set | `gondr-token.hetzner` / `<project>` |
 | Fly.io | Mint an app-scoped child into Infisical, or run one approved command with `FLY_API_TOKEN` (org token) | `gondr-token.fly` / `<org>` |
 | Tailscale | Mint a tagged auth key into Infisical | `gondr-token.tailscale` / `<tailnet>` |
@@ -147,13 +147,22 @@ infra-token-factory revoke openrouter --account <label> --name <key-name>
 infra-token-factory revoke gitlab-deploy --account <label> --project <group/project> --name <token-name>
 ```
 
-Each deletes the one token with that exact name. It fails if no token or
+`exec planetscale` mints a child with the accesses, sets
+`PLANETSCALE_SERVICE_TOKEN_ID`, `PLANETSCALE_SERVICE_TOKEN` and
+`PLANETSCALE_ORG` (read by `pscale`), runs the command, and deletes the child
+when the command exits. `--expires-in` (at most 24h) is the child's TTL, which
+ends it if the factory dies first. For read access to data, run
+`pscale role create` inside it with a short TTL.
+
+Each `revoke` deletes the one token with that exact name. It fails if no token or
 several tokens have that name. It does not delete the Infisical secrets.
 
 ## Run a command with a parent
 
 ```sh
 infra-token-factory exec hetzner --project <label> -- <command> [args...]
+infra-token-factory exec planetscale --org <org> [--org-access <a> ...] \
+  [--database <db> --database-access <a> ...] --expires-in <N>h -- <command>
 infra-token-factory exec fly --org <org> -- <command> [args...]
 infra-token-factory exec gitlab --account <label> -- <command> [args...]
 infra-token-factory exec github --app <label> --owner <login> --repo <name> \
