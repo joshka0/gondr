@@ -72,8 +72,8 @@ The terminal and the Touch ID dialog then show:
 - **Folder**: the caller's working directory;
 - **Reason**: the `--reason` text.
 
-The agent writes the reason and the pane ID, so they can be false. The
-process and the folder come from the system.
+The agent controls the reason, the pane ID and the folder (it can `cd`
+first), so they can be false. Only the agent process comes from the system.
 
 ## Mint
 
