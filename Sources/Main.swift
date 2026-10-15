@@ -175,7 +175,7 @@ func takeReason(_ arguments: [String]) throws -> (arguments: [String], reason: S
 
 /// The nearest agent process above this one, or the first few ancestors when
 /// no agent is found. Ancestry comes from the kernel, not the environment.
-func requestingProcess() -> String {
+func requestingProcess() -> (agent: String?, pid: pid_t, label: String) {
     let agents: Set<String> = ["claude", "codex", "gemini", "cursor-agent", "opencode", "droid", "amp", "pi"]
     var chain: [String] = []
     var pid = getppid()
@@ -189,11 +189,53 @@ func requestingProcess() -> String {
         var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         let components = proc_pidpath(pid, &path, UInt32(path.count)) > 0
             ? String(cString: path).split(separator: "/").map(String.init) : [name]
-        if let agent = components.last(where: agents.contains) { return "\(agent) (pid \(pid))" }
+        if let agent = components.last(where: agents.contains) { return (agent, pid, agent) }
         chain.append(name)
         pid = info.kp_eproc.e_ppid
     }
-    return "no agent found (\(chain.prefix(3).joined(separator: " < ")))"
+    return (nil, 0, "no agent found (\(chain.prefix(3).joined(separator: " < ")))")
+}
+
+/// Runs `herdr <arguments>` and returns its `result` object, or nil when
+/// herdr is missing, fails, or takes longer than two seconds.
+private func herdr(_ arguments: [String]) -> [String: Any]? {
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".local/bin/herdr")
+    process.arguments = arguments
+    process.standardOutput = output
+    process.standardError = FileHandle.nullDevice
+    guard (try? process.run()) != nil else { return nil }
+    // Read on another thread, so a hung herdr cannot block the prompt.
+    let done = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var data = Data()
+    DispatchQueue.global().async {
+        data = output.fileHandleForReading.readDataToEndOfFile()
+        done.signal()
+    }
+    guard done.wait(timeout: .now() + 2) == .success else {
+        process.terminate()
+        return nil
+    }
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return nil }
+    return (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["result"] as? [String: Any]
+}
+
+/// The Herdr session of the agent: its title (the agent's session name) and
+/// workspace label. The pane ID comes from `HERDR_PANE_ID`, which the caller
+/// controls, so it counts only when Herdr reports the agent process in it.
+func herdrSession(agentPID: pid_t) -> (title: String, workspace: String)? {
+    guard agentPID > 0, let paneID = ProcessInfo.processInfo.environment["HERDR_PANE_ID"],
+          matches(paneID, "^[A-Za-z0-9:_-]{1,64}$"),
+          let info = herdr(["pane", "process-info", "--pane", paneID])?["process_info"] as? [String: Any] else { return nil }
+    let pids = ((info["foreground_processes"] as? [[String: Any]]) ?? []).compactMap { $0["pid"] as? Int }
+    guard info["foreground_process_group_id"] as? Int == Int(agentPID) || pids.contains(Int(agentPID)),
+          let pane = herdr(["pane", "get", paneID])?["pane"] as? [String: Any] else { return nil }
+    let title = pane["terminal_title_stripped"] as? String ?? ""
+    let workspace = (pane["workspace_id"] as? String).flatMap { herdr(["workspace", "get", $0]) }
+        .flatMap { ($0["workspace"] as? [String: Any])?["label"] as? String } ?? ""
+    return (title.isEmpty ? "untitled" : title, workspace.isEmpty ? paneID : workspace)
 }
 
 /// Shows who asks, from where, and why, then asks for Touch ID or the login
@@ -201,9 +243,11 @@ func requestingProcess() -> String {
 func requireUserApproval(action: String) async throws {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     let folder = FileManager.default.currentDirectoryPath
-    let pane = ProcessInfo.processInfo.environment["HERDR_PANE_ID"]
+    let requester = requestingProcess()
+    let session = herdrSession(agentPID: requester.pid)
     let details = [
-        "Requested by: \(requestingProcess())\(pane.map { ", pane \($0)" } ?? "")",
+        "Requested by: \(requester.label)\(session.map { " in \"\($0.title)\"" } ?? "")",
+        "Workspace: \(session?.workspace ?? "unknown")",
         "Folder: \(folder.hasPrefix(home) ? "~" + folder.dropFirst(home.count) : folder)",
         "Reason: \(Request.reason ?? "none given")",
     ]

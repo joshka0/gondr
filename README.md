@@ -67,13 +67,16 @@ The terminal and the Touch ID dialog then show:
 
 - the action, for example `run with Hetzner project ai-dev: true`;
 - **Requested by**: the nearest agent process (`claude`, `codex` and others),
-  found from the executable paths of the parent processes, plus the Herdr pane
-  from `HERDR_PANE_ID`;
+  found from the executable paths of the parent processes, and its session
+  title (the Herdr pane title);
+- **Workspace**: the Herdr workspace label of that pane;
 - **Folder**: the caller's working directory;
 - **Reason**: the `--reason` text.
 
-The agent controls the reason, the pane ID and the folder (it can `cd`
-first), so they can be false. Only the agent process comes from the system.
+The title and workspace show only when Herdr reports the agent process in the
+pane named by `HERDR_PANE_ID`; otherwise the prompt shows `Workspace: unknown`.
+The agent controls the reason, its session title and the folder (it can `cd`
+first), so read them as claims. The agent process comes from the system.
 
 ## Mint
 
