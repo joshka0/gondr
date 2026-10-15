@@ -11,6 +11,7 @@ Keychain. The binary never prints them.
 | Hetzner Cloud | Run one approved command with `HCLOUD_TOKEN` set | `gondr-token.hetzner` / `<project>` |
 | Fly.io | Mint an app-scoped child into Infisical, or run one approved command with `FLY_API_TOKEN` (org token) | `gondr-token.fly` / `<org>` |
 | Tailscale | Mint a tagged auth key into Infisical | `gondr-token.tailscale` / `<tailnet>` |
+| OpenRouter | Mint an API key with a credit limit into Infisical | `gondr-token.openrouter` / `<account>` |
 
 Hetzner Cloud has no API to create tokens, so the factory gates each command
 instead. The command can read the token. Approve only commands you trust.
@@ -35,6 +36,7 @@ infra-token-factory import planetscale --org <org>
 infra-token-factory import hetzner --project <label>
 infra-token-factory import fly --org <org>
 infra-token-factory import tailscale --tailnet <label>
+infra-token-factory import openrouter --account <label>
 ```
 
 - PlanetScale parent: a service token with `write_service_tokens`,
@@ -43,6 +45,8 @@ infra-token-factory import tailscale --tailnet <label>
 - Hetzner: a **Read & Write** API token for the project.
 - Fly: an org token, `fly tokens create org --name infra-token-factory --expiry 8760h`.
   `--org` is the org slug from `fly orgs list` (for a personal org, `personal`).
+- OpenRouter: a management key from https://openrouter.ai/settings/management-keys,
+  with an expiry. It can manage every key in the account, so keep it here only.
 - Tailscale: an OAuth client with the `auth_keys` scope that owns the tags keys
   may carry. Import asks for the client ID, then the `tskey-client-` secret.
 
@@ -73,6 +77,11 @@ infra-token-factory mint tailscale --tailnet <label> --name <key-name> \
   --expires-in <N>h|<N>d \
   --infisical-project <id> --infisical-env <env> --infisical-path <path> \
   --infisical-secret TS_AUTHKEY_<CAPABILITY>
+
+infra-token-factory mint openrouter --account <label> --name <key-name> \
+  --limit-usd <amount> --reset daily|weekly|monthly|never --expires-in <N>d \
+  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
+  --infisical-secret OPENROUTER_<APP>_API_KEY
 ```
 
 - `--expires-in` is required. Use `never` only for a token that must outlive a
@@ -89,6 +98,8 @@ infra-token-factory mint tailscale --tailnet <label> --name <key-name> \
   every child. Creating an app needs `exec fly`.
 - A Tailscale key must carry tags the OAuth client owns, and expires in 90 days
   or less.
+- An OpenRouter key's limit is its budget: at most $100 per reset period.
+  OpenRouter refuses requests once it is spent, until the reset.
 - PlanetScale writes `<prefix>_SERVICE_TOKEN_ID` and `<prefix>_SERVICE_TOKEN`.
 - If a grant, check, or vault write fails, the factory deletes the child.
 
@@ -98,6 +109,7 @@ infra-token-factory mint tailscale --tailnet <label> --name <key-name> \
 infra-token-factory revoke cloudflare --name <token-name> --account-id <id>
 infra-token-factory revoke planetscale --org <org> --name <token-name>
 infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
+infra-token-factory revoke openrouter --account <label> --name <key-name>
 ```
 
 Each deletes the one token with that exact name. It fails if no token or
@@ -121,6 +133,7 @@ infra-token-factory check planetscale --org <org>
 infra-token-factory check hetzner --project <label>
 infra-token-factory check fly --org <org>
 infra-token-factory check tailscale --tailnet <label>
+infra-token-factory check openrouter --account <label>
 ```
 
 Each reports presence only.

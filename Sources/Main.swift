@@ -20,16 +20,20 @@ Usage:
   infra-token-factory exec fly --org <org> -- <command> [args...]
   infra-token-factory mint tailscale <options>
   infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
+  infra-token-factory mint openrouter <options>
+  infra-token-factory revoke openrouter --account <label> --name <key-name>
   infra-token-factory exec hetzner --project <label> -- <command> [args...]
   infra-token-factory import planetscale --org <org>
   infra-token-factory import hetzner --project <label>
   infra-token-factory import fly --org <org>
   infra-token-factory import tailscale --tailnet <label>
+  infra-token-factory import openrouter --account <label>
   infra-token-factory check cloudflare
   infra-token-factory check planetscale --org <org>
   infra-token-factory check hetzner --project <label>
   infra-token-factory check fly --org <org>
   infra-token-factory check tailscale --tailnet <label>
+  infra-token-factory check openrouter --account <label>
 """
 
 @main
@@ -58,6 +62,10 @@ struct InfraTokenFactory {
             case ("revoke", "tailscale"): try await Tailscale.revoke(rest)
             case ("import", "tailscale"): try await Tailscale.importParent(rest)
             case ("check", "tailscale"): try await Tailscale.check(rest)
+            case ("mint", "openrouter"): try await OpenRouter.mint(rest)
+            case ("revoke", "openrouter"): try await OpenRouter.revoke(rest)
+            case ("import", "openrouter"): try await OpenRouter.importParent(rest)
+            case ("check", "openrouter"): try await OpenRouter.check(rest)
             default: throw FactoryError.message(usage)
             }
         } catch {
