@@ -313,8 +313,12 @@ enum OpenRouter {
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
 
+        // The default workspace appears both unfiltered and by its ID; keep each key once.
         var all = try await keys(in: nil, management)
-        for space in try await workspaces(management) { all += try await keys(in: space.id, management) }
+        for space in try await workspaces(management) {
+            let known = Set(all.map(\.hash))
+            all += try await keys(in: space.id, management).filter { !known.contains($0.hash) }
+        }
         let targets: [KeyList.Key]
         if let name {
             targets = all.filter { $0.name == name && $0.disabled != true }
