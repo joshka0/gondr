@@ -173,6 +173,29 @@ enum OpenRouter {
         print("workspace=created slug=\(created.data.slug) id=\(created.data.id)")
     }
 
+    /// `--account --slug`: deletes an empty workspace. Refuses one that holds keys.
+    static func revokeWorkspace(_ arguments: [String]) async throws {
+        let options = try Options(arguments, allowed: ["--account", "--slug"])
+        let account = try validAccount(try options.required("--account"))
+        let slug = try options.required("--slug")
+        guard matches(slug, "^[a-z0-9]+(-[a-z0-9]+)*$"), slug != "default" else {
+            throw FactoryError.message("--slug has an invalid shape, or names the default workspace")
+        }
+        print("OpenRouter workspace deletion")
+        print("  Account: \(account)")
+        print("  Workspace: \(slug)")
+        try await requireUserApproval(action: "delete the empty OpenRouter workspace \(slug).")
+        var (data, management) = try readParent(account)
+        defer { data.resetBytes(in: 0..<data.count) }
+        let space = try await workspace(slug, management)
+        let held = try await keys(in: space.id, management)
+        guard held.isEmpty else {
+            throw FactoryError.message("Workspace \(slug) holds \(held.count) keys; revoke them first")
+        }
+        let _: Ignored? = try await request("workspaces/\(space.id)", method: "DELETE", token: management)
+        print("workspace=deleted slug=\(slug)")
+    }
+
     /// Reports presence, then whether the management key can list keys.
     static func check(_ arguments: [String]) async throws {
         let options = try Options(arguments, allowed: ["--account"])
@@ -215,8 +238,10 @@ enum OpenRouter {
         guard resets.contains(reset) else {
             throw FactoryError.message("--reset takes daily, weekly, monthly, or never")
         }
-        guard let expiresIn = try parseExpiry(try options.required("--expires-in")) else {
-            throw FactoryError.message("OpenRouter keys need a finite --expires-in")
+        // A key that never expires must still have a resetting limit, so spend stays capped per period.
+        let expiresIn = try parseExpiry(try options.required("--expires-in"))
+        guard expiresIn != nil || reset != "never" else {
+            throw FactoryError.message("A key with --expires-in never needs --reset daily, weekly, or monthly")
         }
         let destination = try InfisicalDestination(options)
         let secret = try options.required("--infisical-secret")
@@ -224,14 +249,14 @@ enum OpenRouter {
             throw FactoryError.message("One or more arguments have an invalid shape")
         }
 
-        let expiresAt = iso8601(Date().addingTimeInterval(expiresIn))
+        let expiresAt = expiresIn.map { iso8601(Date().addingTimeInterval($0)) }
         let limitText = String(format: "%.2f", limit)
         print("OpenRouter key request")
         print("  Account: \(account)")
         print("  Workspace: \(workspaceSlug)")
         print("  Name: \(name)")
         print("  Limit: $\(limitText) (reset: \(reset))")
-        print("  Expires: \(expiresAt)")
+        print("  Expires: \(expiresAt ?? "never")")
         print("  Destination: \(destination.label(secret))")
         try await requireUserApproval(
             action: "create OpenRouter key \(name) in workspace \(workspaceSlug) with a $\(limitText) \(reset) limit, and store it as \(secret)."
@@ -241,8 +266,9 @@ enum OpenRouter {
 
         let space = try await workspace(workspaceSlug, management)
         var body: [String: Any] = [
-            "name": name, "limit": limit, "expires_at": expiresAt, "include_byok_in_limit": true, "workspace_id": space.id,
+            "name": name, "limit": limit, "include_byok_in_limit": true, "workspace_id": space.id,
         ]
+        if let expiresAt { body["expires_at"] = expiresAt }
         if reset != "never" { body["limit_reset"] = reset }
         let created: CreatedKey = try await request(
             "keys", method: "POST", token: management, body: try JSONSerialization.data(withJSONObject: body)

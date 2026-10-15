@@ -24,6 +24,7 @@ Usage (mint, revoke and exec also need --reason "<why>", before any --):
   infra-token-factory mint openrouter <options>
   infra-token-factory revoke openrouter --account <label> (--name <key-name> | --hash <h> ...)
   infra-token-factory list openrouter --account <label>
+  infra-token-factory revoke openrouter-workspace --account <label> --slug <slug>
   infra-token-factory create openrouter-workspace --account <label> --slug <slug> --name <name> [--monthly-budget-usd <N>]
   infra-token-factory mint gitlab-deploy <options>
   infra-token-factory revoke gitlab-deploy --account <label> --project <group/project> --name <name>
@@ -84,6 +85,7 @@ struct InfraTokenFactory {
             case ("check", "openrouter"): try await OpenRouter.check(rest)
             case ("list", "openrouter"): try await OpenRouter.list(rest)
             case ("create", "openrouter-workspace"): try await OpenRouter.createWorkspace(rest)
+            case ("revoke", "openrouter-workspace"): try await OpenRouter.revokeWorkspace(rest)
             case ("mint", "gitlab-deploy"): try await GitLab.mintDeploy(rest)
             case ("revoke", "gitlab-deploy"): try await GitLab.revokeDeploy(rest)
             case ("exec", "gitlab"): try await GitLab.exec(rest)
