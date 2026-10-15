@@ -22,18 +22,26 @@ Usage:
   infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
   infra-token-factory mint openrouter <options>
   infra-token-factory revoke openrouter --account <label> --name <key-name>
+  infra-token-factory mint gitlab-deploy <options>
+  infra-token-factory revoke gitlab-deploy --account <label> --project <group/project> --name <name>
+  infra-token-factory exec gitlab --account <label> -- <command> [args...]
+  infra-token-factory exec github --app <label> --owner <login> --repo <name> --permission <name>:<read|write> -- <command>
   infra-token-factory exec hetzner --project <label> -- <command> [args...]
   infra-token-factory import planetscale --org <org>
   infra-token-factory import hetzner --project <label>
   infra-token-factory import fly --org <org>
   infra-token-factory import tailscale --tailnet <label>
   infra-token-factory import openrouter --account <label>
+  infra-token-factory import gitlab --account <label>
+  infra-token-factory import github --app <label> --app-id <id> --key-file <path.pem>
   infra-token-factory check cloudflare
   infra-token-factory check planetscale --org <org>
   infra-token-factory check hetzner --project <label>
   infra-token-factory check fly --org <org>
   infra-token-factory check tailscale --tailnet <label>
   infra-token-factory check openrouter --account <label>
+  infra-token-factory check gitlab --account <label>
+  infra-token-factory check github --app <label>
 """
 
 @main
@@ -66,6 +74,14 @@ struct InfraTokenFactory {
             case ("revoke", "openrouter"): try await OpenRouter.revoke(rest)
             case ("import", "openrouter"): try await OpenRouter.importParent(rest)
             case ("check", "openrouter"): try await OpenRouter.check(rest)
+            case ("mint", "gitlab-deploy"): try await GitLab.mintDeploy(rest)
+            case ("revoke", "gitlab-deploy"): try await GitLab.revokeDeploy(rest)
+            case ("exec", "gitlab"): try await GitLab.exec(rest)
+            case ("import", "gitlab"): try await GitLab.importParent(rest)
+            case ("check", "gitlab"): try await GitLab.check(rest)
+            case ("exec", "github"): try await GitHub.exec(rest)
+            case ("import", "github"): try await GitHub.importParent(rest)
+            case ("check", "github"): try await GitHub.check(rest)
             default: throw FactoryError.message(usage)
             }
         } catch {
@@ -270,8 +286,14 @@ func runWithSecret(_ item: KeychainItem, env: String, label: String, command: [S
         reason: "Run with \(label): \(shown.count > 200 ? String(shown.prefix(200)) + "…" : shown)"
     )
     var secret = try item.read()
-    setenv(env, String(decoding: secret, as: UTF8.self), 1)
+    let value = String(decoding: secret, as: UTF8.self)
     secret.resetBytes(in: 0..<secret.count)
+    try execWithEnvironment([env: value], command: command)
+}
+
+/// Sets the variables and replaces this process with the command.
+func execWithEnvironment(_ variables: [String: String], command: [String]) throws -> Never {
+    for (name, value) in variables { setenv(name, value, 1) }
     var argv: [UnsafeMutablePointer<CChar>?] = command.map { strdup($0) } + [nil]
     execvp(command[0], &argv)
     throw FactoryError.message("Cannot run \(command[0]): \(String(cString: strerror(errno)))")

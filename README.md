@@ -12,6 +12,8 @@ Keychain. The binary never prints them.
 | Fly.io | Mint an app-scoped child into Infisical, or run one approved command with `FLY_API_TOKEN` (org token) | `gondr-token.fly` / `<org>` |
 | Tailscale | Mint a tagged auth key into Infisical | `gondr-token.tailscale` / `<tailnet>` |
 | OpenRouter | Mint an API key with a credit limit into Infisical | `gondr-token.openrouter` / `<account>` |
+| GitLab.com | Mint a project deploy token into Infisical, or run one approved command with `GITLAB_TOKEN` (the PAT) | `gondr-token.gitlab` / `<account>` |
+| GitHub | Run one approved command with a 1-hour installation token (`GH_TOKEN`) limited to named repos and permissions | `gondr-token.github` / `<app>` |
 
 Hetzner Cloud has no API to create tokens, so the factory gates each command
 instead. The command can read the token. Approve only commands you trust.
@@ -37,6 +39,8 @@ infra-token-factory import hetzner --project <label>
 infra-token-factory import fly --org <org>
 infra-token-factory import tailscale --tailnet <label>
 infra-token-factory import openrouter --account <label>
+infra-token-factory import gitlab --account <label>
+infra-token-factory import github --app <label> --app-id <id> --key-file <path.pem>
 ```
 
 - PlanetScale parent: a service token with `write_service_tokens`,
@@ -47,6 +51,12 @@ infra-token-factory import openrouter --account <label>
   `--org` is the org slug from `fly orgs list` (for a personal org, `personal`).
 - OpenRouter: a management key from https://openrouter.ai/settings/management-keys,
   with an expiry. It can manage every key in the account, so keep it here only.
+- GitLab: a personal access token with the `api` scope and an expiry. On
+  GitLab.com Free a PAT cannot mint scoped access tokens (those need Premium),
+  so the factory mints deploy tokens and gates other use behind `exec gitlab`.
+- GitHub: a GitHub App with only the permissions agents may get, installed on
+  the repositories they may touch. Import reads the downloaded PKCS#1 `.pem`
+  once; delete the file afterwards.
 - Tailscale: an OAuth client with the `auth_keys` scope that owns the tags keys
   may carry. Import asks for the client ID, then the `tskey-client-` secret.
 
@@ -82,6 +92,12 @@ infra-token-factory mint openrouter --account <label> --name <key-name> \
   --limit-usd <amount> --reset daily|weekly|monthly|never --expires-in <N>d \
   --infisical-project <id> --infisical-env <env> --infisical-path <path> \
   --infisical-secret OPENROUTER_<APP>_API_KEY
+
+infra-token-factory mint gitlab-deploy --account <label> --project <group/project> \
+  --name <token-name> --scope read_repository|read_registry|write_registry|... \
+  --expires-in <N>d \
+  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
+  --infisical-secret-prefix GITLAB_<PURPOSE>_DEPLOY
 ```
 
 - `--expires-in` is required. Use `never` only for a token that must outlive a
@@ -110,6 +126,7 @@ infra-token-factory revoke cloudflare --name <token-name> --account-id <id>
 infra-token-factory revoke planetscale --org <org> --name <token-name>
 infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
 infra-token-factory revoke openrouter --account <label> --name <key-name>
+infra-token-factory revoke gitlab-deploy --account <label> --project <group/project> --name <token-name>
 ```
 
 Each deletes the one token with that exact name. It fails if no token or
@@ -120,6 +137,9 @@ several tokens have that name. It does not delete the Infisical secrets.
 ```sh
 infra-token-factory exec hetzner --project <label> -- <command> [args...]
 infra-token-factory exec fly --org <org> -- <command> [args...]
+infra-token-factory exec gitlab --account <label> -- <command> [args...]
+infra-token-factory exec github --app <label> --owner <login> --repo <name> \
+  --permission contents:write [--permission ...] -- <command> [args...]
 ```
 
 The command gets the parent in `HCLOUD_TOKEN` or `FLY_API_TOKEN`. It can read
@@ -134,6 +154,8 @@ infra-token-factory check hetzner --project <label>
 infra-token-factory check fly --org <org>
 infra-token-factory check tailscale --tailnet <label>
 infra-token-factory check openrouter --account <label>
+infra-token-factory check gitlab --account <label>
+infra-token-factory check github --app <label>
 ```
 
 Each reports presence only.
