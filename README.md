@@ -106,7 +106,10 @@ infra-token-factory mint tailscale --tailnet <label> --name <key-name> \
   --infisical-project <id> --infisical-env <env> --infisical-path <path> \
   --infisical-secret TS_AUTHKEY_<CAPABILITY>
 
-infra-token-factory mint openrouter --account <label> --name <key-name> \
+infra-token-factory create openrouter-workspace --account <label> --slug <slug> --name <name> \
+  [--monthly-budget-usd <N>]
+
+infra-token-factory mint openrouter --account <label> --workspace <slug> --name <key-name> \
   --limit-usd <amount> --reset daily|weekly|monthly|never --expires-in <N>d \
   --infisical-project <id> --infisical-env <env> --infisical-path <path> \
   --infisical-secret OPENROUTER_<APP>_API_KEY
@@ -143,7 +146,8 @@ infra-token-factory mint gitlab-deploy --account <label> --project <group/projec
 infra-token-factory revoke cloudflare --name <token-name> --account-id <id>
 infra-token-factory revoke planetscale --org <org> --name <token-name>
 infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
-infra-token-factory revoke openrouter --account <label> --name <key-name>
+infra-token-factory revoke openrouter --account <label> (--name <key-name> | --hash <h> ...)
+infra-token-factory list openrouter --account <label>
 infra-token-factory revoke gitlab-deploy --account <label> --project <group/project> --name <token-name>
 ```
 

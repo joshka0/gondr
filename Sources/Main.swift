@@ -22,7 +22,9 @@ Usage (mint, revoke and exec also need --reason "<why>", before any --):
   infra-token-factory mint tailscale <options>
   infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
   infra-token-factory mint openrouter <options>
-  infra-token-factory revoke openrouter --account <label> --name <key-name>
+  infra-token-factory revoke openrouter --account <label> (--name <key-name> | --hash <h> ...)
+  infra-token-factory list openrouter --account <label>
+  infra-token-factory create openrouter-workspace --account <label> --slug <slug> --name <name> [--monthly-budget-usd <N>]
   infra-token-factory mint gitlab-deploy <options>
   infra-token-factory revoke gitlab-deploy --account <label> --project <group/project> --name <name>
   infra-token-factory exec gitlab --account <label> -- <command> [args...]
@@ -52,7 +54,7 @@ struct InfraTokenFactory {
         do {
             guard values.count >= 2 else { throw FactoryError.message(usage) }
             let (rest, reason) = try takeReason(Array(values.dropFirst(2)))
-            guard reason != nil || !["mint", "revoke", "exec"].contains(values[0]) else {
+            guard reason != nil || !["mint", "revoke", "exec", "create"].contains(values[0]) else {
                 throw FactoryError.message(#"\#(values[0]) needs --reason "<why you need it>""#)
             }
             Request.reason = reason
@@ -80,6 +82,8 @@ struct InfraTokenFactory {
             case ("revoke", "openrouter"): try await OpenRouter.revoke(rest)
             case ("import", "openrouter"): try await OpenRouter.importParent(rest)
             case ("check", "openrouter"): try await OpenRouter.check(rest)
+            case ("list", "openrouter"): try await OpenRouter.list(rest)
+            case ("create", "openrouter-workspace"): try await OpenRouter.createWorkspace(rest)
             case ("mint", "gitlab-deploy"): try await GitLab.mintDeploy(rest)
             case ("revoke", "gitlab-deploy"): try await GitLab.revokeDeploy(rest)
             case ("exec", "gitlab"): try await GitLab.exec(rest)

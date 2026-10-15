@@ -18,9 +18,30 @@ enum OpenRouter {
         struct Key: Decodable {
             let hash: String
             let name: String?
+            let label: String?
             let disabled: Bool?
+            let limit: Double?
+            let limit_reset: String?
+            let usage: Double?
+            let usage_monthly: Double?
+            let expires_at: String?
+            let last_used_at: String?
+            let workspace_id: String?
         }
         let data: [Key]
+    }
+
+    private struct WorkspaceList: Decodable {
+        struct Workspace: Decodable {
+            let id: String
+            let name: String
+            let slug: String
+        }
+        let data: [Workspace]
+    }
+
+    private struct CreatedWorkspace: Decodable {
+        let data: WorkspaceList.Workspace
     }
 
     private struct CurrentKey: Decodable {
@@ -49,6 +70,107 @@ enum OpenRouter {
     private static func readParent(_ account: String) throws -> (Data, String) {
         let data = try parent(account).read()
         return (data, String(decoding: data, as: UTF8.self))
+    }
+
+    private static func workspaces(_ management: String) async throws -> [WorkspaceList.Workspace] {
+        var all: [WorkspaceList.Workspace] = []
+        while true {
+            let page: WorkspaceList = try await request(
+                "workspaces", query: [URLQueryItem(name: "offset", value: String(all.count))], token: management
+            )
+            all += page.data
+            if page.data.isEmpty || page.data.count < 50 { return all }
+        }
+    }
+
+    private static func workspace(_ slug: String, _ management: String) async throws -> WorkspaceList.Workspace {
+        guard let found = try await workspaces(management).first(where: { $0.slug == slug }) else {
+            throw FactoryError.message("No OpenRouter workspace with slug \(slug); create it with create openrouter-workspace")
+        }
+        return found
+    }
+
+    /// Every key in one workspace (nil: the default workspace), live and disabled.
+    private static func keys(in workspaceID: String?, _ management: String) async throws -> [KeyList.Key] {
+        var all: [KeyList.Key] = []
+        while true {
+            var query = [URLQueryItem(name: "offset", value: String(all.count)),
+                         URLQueryItem(name: "include_disabled", value: "true")]
+            if let workspaceID { query.append(URLQueryItem(name: "workspace_id", value: workspaceID)) }
+            let page: KeyList = try await request("keys", query: query, token: management)
+            all += page.data
+            if page.data.count < 100 { return all }
+        }
+    }
+
+    /// Lists every key in every workspace: names, masked labels, limits and
+    /// usage. Never a key value.
+    static func list(_ arguments: [String]) async throws {
+        let options = try Options(arguments, allowed: ["--account"])
+        let account = try validAccount(try options.required("--account"))
+        print("OpenRouter key inventory")
+        print("  Account: \(account)")
+        try await requireUserApproval(action: "list the OpenRouter workspaces and keys of \(account) (names, limits and usage only).")
+        var (data, management) = try readParent(account)
+        defer { data.resetBytes(in: 0..<data.count) }
+        func money(_ value: Double?) -> String { value.map { String(format: "%.2f", $0) } ?? "none" }
+        var groups: [(label: String, keys: [KeyList.Key])] = []
+        var seen = Set<String>()
+        for space in try await workspaces(management) {
+            let found = try await keys(in: space.id, management)
+            seen.formUnion(found.map(\.hash))
+            groups.append(("workspace=\(space.slug) name=\(space.name)", found))
+        }
+        let unlisted = try await keys(in: nil, management).filter { !seen.contains($0.hash) }
+        if !unlisted.isEmpty { groups.append(("workspace=(default, unlisted)", unlisted)) }
+        for (label, found) in groups {
+            print("\(label) keys=\(found.count)")
+            for key in found {
+                print([
+                    "  key=\(key.name ?? "?")", "hash=\(key.hash)", "label=\(key.label ?? "?")",
+                    "disabled=\(key.disabled ?? false)", "limit=\(money(key.limit))", "reset=\(key.limit_reset ?? "never")",
+                    "usage=\(money(key.usage))", "usage_monthly=\(money(key.usage_monthly))",
+                    "last_used=\(key.last_used_at ?? "never")", "expires=\(key.expires_at ?? "never")",
+                ].joined(separator: " "))
+            }
+        }
+    }
+
+    /// `--account --slug --name [--monthly-budget-usd N]`
+    static func createWorkspace(_ arguments: [String]) async throws {
+        let options = try Options(arguments, allowed: ["--account", "--slug", "--name", "--monthly-budget-usd"])
+        let account = try validAccount(try options.required("--account"))
+        let slug = try options.required("--slug")
+        let name = try options.required("--name")
+        guard matches(slug, "^[a-z0-9]+(-[a-z0-9]+)*$"), slug.count <= 64, name.count <= 100 else {
+            throw FactoryError.message("--slug takes lowercase words joined by single hyphens; --name at most 100 characters")
+        }
+        let budget = try options.optional("--monthly-budget-usd").map { text -> Double in
+            guard let value = Double(text), value > 0, value <= 500 else {
+                throw FactoryError.message("--monthly-budget-usd takes a number above 0 and at most 500")
+            }
+            return value
+        }
+        print("OpenRouter workspace request")
+        print("  Account: \(account)")
+        print("  Workspace: \(slug) (\(name))")
+        print("  Monthly budget: \(budget.map { String(format: "$%.2f", $0) } ?? "none")")
+        try await requireUserApproval(
+            action: "create the OpenRouter workspace \(slug)\(budget.map { String(format: " with a $%.2f monthly budget", $0) } ?? "")."
+        )
+        var (data, management) = try readParent(account)
+        defer { data.resetBytes(in: 0..<data.count) }
+        let created: CreatedWorkspace = try await request(
+            "workspaces", method: "POST", token: management,
+            body: try JSONSerialization.data(withJSONObject: ["name": name, "slug": slug])
+        )
+        if let budget {
+            let _: Ignored = try await request(
+                "workspaces/\(created.data.id)/budgets/monthly", method: "PUT", token: management,
+                body: try JSONSerialization.data(withJSONObject: ["limit_usd": budget, "include_byok_in_budgets": true])
+            )
+        }
+        print("workspace=created slug=\(created.data.slug) id=\(created.data.id)")
     }
 
     /// Reports presence, then whether the management key can list keys.
@@ -80,10 +202,11 @@ enum OpenRouter {
     static func mint(_ arguments: [String]) async throws {
         let options = try Options(
             arguments,
-            allowed: ["--account", "--name", "--limit-usd", "--reset", "--expires-in",
+            allowed: ["--account", "--workspace", "--name", "--limit-usd", "--reset", "--expires-in",
                       "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret"]
         )
         let account = try validAccount(try options.required("--account"))
+        let workspaceSlug = try options.required("--workspace")
         let name = try options.required("--name")
         guard let limit = Double(try options.required("--limit-usd")), limit > 0, limit <= 100 else {
             throw FactoryError.message("--limit-usd takes a number above 0 and at most 100")
@@ -105,17 +228,21 @@ enum OpenRouter {
         let limitText = String(format: "%.2f", limit)
         print("OpenRouter key request")
         print("  Account: \(account)")
+        print("  Workspace: \(workspaceSlug)")
         print("  Name: \(name)")
         print("  Limit: $\(limitText) (reset: \(reset))")
         print("  Expires: \(expiresAt)")
         print("  Destination: \(destination.label(secret))")
         try await requireUserApproval(
-            action: "create OpenRouter key \(name) with a $\(limitText) \(reset) limit, and store it as \(secret)."
+            action: "create OpenRouter key \(name) in workspace \(workspaceSlug) with a $\(limitText) \(reset) limit, and store it as \(secret)."
         )
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
 
-        var body: [String: Any] = ["name": name, "limit": limit, "expires_at": expiresAt, "include_byok_in_limit": true]
+        let space = try await workspace(workspaceSlug, management)
+        var body: [String: Any] = [
+            "name": name, "limit": limit, "expires_at": expiresAt, "include_byok_in_limit": true, "workspace_id": space.id,
+        ]
         if reset != "never" { body["limit_reset"] = reset }
         let created: CreatedKey = try await request(
             "keys", method: "POST", token: management, body: try JSONSerialization.data(withJSONObject: body)
@@ -138,34 +265,45 @@ enum OpenRouter {
         print("parent_exposed=false")
     }
 
-    /// Deletes the one live key with this exact name.
+    /// `--name <name>` deletes the one live key with that exact name in any
+    /// workspace; `--hash <h>` (repeatable) deletes those keys. One approval.
     static func revoke(_ arguments: [String]) async throws {
-        let options = try Options(arguments, allowed: ["--account", "--name"])
+        let options = try Options(arguments, allowed: ["--account", "--name"], repeatable: ["--hash"])
         let account = try validAccount(try options.required("--account"))
-        let name = try options.required("--name")
-        guard name.count <= 120 else { throw FactoryError.message("--name is too long") }
+        let name = options.optional("--name")
+        let hashes = options.all("--hash")
+        guard (name == nil) != hashes.isEmpty else { throw FactoryError.message("Give --name or --hash, not both") }
+        guard name.map({ $0.count <= 120 }) ?? true, hashes.count <= 50,
+              hashes.allSatisfy({ matches($0, "^[A-Za-z0-9]{8,128}$") }) else {
+            throw FactoryError.message("One or more arguments have an invalid shape")
+        }
 
         print("OpenRouter key revocation")
         print("  Account: \(account)")
-        print("  Name: \(name)")
-        try await requireUserApproval(action: "delete the OpenRouter key \(name).")
+        if let name { print("  Name: \(name)") } else { print("  Keys: \(hashes.count) by hash") }
+        try await requireUserApproval(
+            action: name.map { "delete the OpenRouter key \($0)." } ?? "delete \(hashes.count) OpenRouter keys by hash."
+        )
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
 
-        var found: [KeyList.Key] = []
-        var offset = 0
-        while true {
-            let page: KeyList = try await request(
-                "keys", query: [URLQueryItem(name: "offset", value: String(offset))], token: management
-            )
-            found += page.data.filter { $0.name == name && $0.disabled != true }
-            if page.data.count < 100 { break }
-            offset += page.data.count
+        var all = try await keys(in: nil, management)
+        for space in try await workspaces(management) { all += try await keys(in: space.id, management) }
+        let targets: [KeyList.Key]
+        if let name {
+            targets = all.filter { $0.name == name && $0.disabled != true }
+            guard targets.count == 1 else {
+                throw FactoryError.message("Expected one live key named \(name), found \(targets.count)")
+            }
+        } else {
+            targets = all.filter { hashes.contains($0.hash) }
+            let unknown = Set(hashes).subtracting(targets.map(\.hash))
+            guard unknown.isEmpty else { throw FactoryError.message("Unknown key hashes: \(unknown.sorted().joined(separator: ", "))") }
         }
-        guard found.count == 1 else {
-            throw FactoryError.message("Expected one live key named \(name), found \(found.count)")
+        for key in targets {
+            let _: Ignored? = try await request("keys/\(key.hash)", method: "DELETE", token: management)
+            print("revoked=\(key.name ?? "?") hash=\(key.hash)")
         }
-        let _: Ignored? = try await request("keys/\(found[0].hash)", method: "DELETE", token: management)
         print("revoke=complete")
         print("parent_exposed=false")
     }
