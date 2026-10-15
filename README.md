@@ -60,6 +60,21 @@ infra-token-factory import github --app <label> --app-id <id> --key-file <path.p
 - Tailscale: an OAuth client with the `auth_keys` scope that owns the tags keys
   may carry. Import asks for the client ID, then the `tskey-client-` secret.
 
+## Approval prompt
+
+`mint`, `revoke` and `exec` need `--reason "<why>"`, placed before any `--`.
+The terminal and the Touch ID dialog then show:
+
+- the action, for example `run with Hetzner project ai-dev: true`;
+- **Requested by**: the nearest agent process (`claude`, `codex` and others),
+  found from the executable paths of the parent processes, plus the Herdr pane
+  from `HERDR_PANE_ID`;
+- **Folder**: the caller's working directory;
+- **Reason**: the `--reason` text.
+
+The agent writes the reason and the pane ID, so they can be false. The
+process and the folder come from the system.
+
 ## Mint
 
 ```sh

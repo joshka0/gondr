@@ -115,10 +115,8 @@ enum Cloudflare {
         if let s3Prefix {
             print("  S3 keys: \(destination.label("\(s3Prefix)_ACCESS_KEY_ID")), \(destination.label("\(s3Prefix)_SECRET_ACCESS_KEY"))")
         }
-        print("Waiting for local approval…")
-        fflush(stdout)
         try await requireUserApproval(
-            reason: "Create Cloudflare token \(name) (\(permissions.joined(separator: ", "))), expiring \(expiresOn ?? "never"), and store it as \(secret)."
+            action: "create Cloudflare token \(name) (\(permissions.joined(separator: ", "))), expiring \(expiresOn ?? "never"), and store it as \(secret)."
         )
         var parentData = try parent.read()
         defer { parentData.resetBytes(in: 0..<parentData.count) }
@@ -203,9 +201,7 @@ enum Cloudflare {
 
         print("Cloudflare token revocation")
         print("  Name: \(name)")
-        print("Waiting for local approval…")
-        fflush(stdout)
-        try await requireUserApproval(reason: "Revoke the Cloudflare token \(name).")
+        try await requireUserApproval(action: "revoke the Cloudflare token \(name).")
         var parentData = try parent.read()
         defer { parentData.resetBytes(in: 0..<parentData.count) }
         let parentToken = String(decoding: parentData, as: UTF8.self)

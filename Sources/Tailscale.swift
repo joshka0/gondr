@@ -100,7 +100,7 @@ enum Tailscale {
         guard secret.starts(with: Data("tskey-client-".utf8)) else {
             throw FactoryError.message("The second value must be the client secret, which starts with tskey-client-")
         }
-        try await requireUserApproval(reason: "Store the Tailscale OAuth client for \(tailnet) in Keychain.")
+        try await requireUserApproval(action: "store the Tailscale OAuth client for \(tailnet) in Keychain.")
         try parent(tailnet).write(id + Data(":".utf8) + secret)
         print("import=complete")
         print("keychain_service=gondr-token.tailscale")
@@ -140,10 +140,8 @@ enum Tailscale {
         print("  Options: \(with.isEmpty ? "single-use" : with.sorted().joined(separator: ", "))")
         print("  Expires: \(iso8601(Date().addingTimeInterval(expiresIn)))")
         print("  Destination: \(destination.label(secret))")
-        print("Waiting for local approval…")
-        fflush(stdout)
         try await requireUserApproval(
-            reason: "Create Tailscale auth key \(name) (\(tags.joined(separator: ", "))) in \(tailnet) and store it as \(secret)."
+            action: "create Tailscale auth key \(name) (\(tags.joined(separator: ", "))) in \(tailnet) and store it as \(secret)."
         )
         let token = try await accessToken(tailnet, tags: tags)
 
@@ -190,9 +188,7 @@ enum Tailscale {
         print("Tailscale auth key revocation")
         print("  Tailnet: \(tailnet)")
         print("  Name: \(name)")
-        print("Waiting for local approval…")
-        fflush(stdout)
-        try await requireUserApproval(reason: "Revoke the Tailscale auth key \(name) in \(tailnet).")
+        try await requireUserApproval(action: "revoke the Tailscale auth key \(name) in \(tailnet).")
         let token = try await accessToken(tailnet, tags: [])
         let list: KeyList = try await api("tailnet/-/keys", token: token)
         var found: [KeyInfo] = []

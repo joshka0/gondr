@@ -84,7 +84,7 @@ enum PlanetScale {
         guard token.starts(with: Data("pscale_tkn_".utf8)) else {
             throw FactoryError.message("The second value must be the token, which starts with pscale_tkn_")
         }
-        try await requireUserApproval(reason: "Store the PlanetScale parent service token for \(org) in Keychain.")
+        try await requireUserApproval(action: "store the PlanetScale parent service token for \(org) in Keychain.")
         try parent(org).write(id + Data(":".utf8) + token)
         print("import=complete")
         print("keychain_service=gondr-token.planetscale")
@@ -134,10 +134,8 @@ enum PlanetScale {
         if let database { print("  Database \(database): \(databaseAccess.joined(separator: ", "))") }
         print("  Expires: \(expiresIn.map { iso8601(Date().addingTimeInterval($0)) } ?? "never")")
         print("  Destination: \(destination.label(idSecret)), \(destination.label(tokenSecret))")
-        print("Waiting for local approval…")
-        fflush(stdout)
         try await requireUserApproval(
-            reason: "Create PlanetScale token \(name) in \(org) (\(accesses.joined(separator: ", "))) and store it as \(prefix)_SERVICE_TOKEN."
+            action: "create PlanetScale token \(name) in \(org) (\(accesses.joined(separator: ", "))) and store it as \(prefix)_SERVICE_TOKEN."
         )
         var parentData = try parent(org).read()
         defer { parentData.resetBytes(in: 0..<parentData.count) }
@@ -199,9 +197,7 @@ enum PlanetScale {
         print("PlanetScale service token revocation")
         print("  Org: \(org)")
         print("  Name: \(name)")
-        print("Waiting for local approval…")
-        fflush(stdout)
-        try await requireUserApproval(reason: "Revoke the PlanetScale service token \(name) in \(org).")
+        try await requireUserApproval(action: "revoke the PlanetScale service token \(name) in \(org).")
         var parentData = try parent(org).read()
         defer { parentData.resetBytes(in: 0..<parentData.count) }
         let auth = String(decoding: parentData, as: UTF8.self)

@@ -60,7 +60,7 @@ enum GitHub {
             throw FactoryError.message("The key file must be the GitHub App's PKCS#1 PEM (BEGIN RSA PRIVATE KEY)")
         }
         _ = try privateKey(fromPEM: pem)
-        try await requireUserApproval(reason: "Store the GitHub App \(app) private key in Keychain.")
+        try await requireUserApproval(action: "store the GitHub App \(app) private key in Keychain.")
         try parent(app).write(Data("\(appID)\n".utf8) + pem)
         print("import=complete")
         print("keychain_service=gondr-token.github")
@@ -102,10 +102,8 @@ enum GitHub {
         print("  Repositories: \(repos.map { "\(owner)/\($0)" }.joined(separator: ", "))")
         print("  Permissions: \(scope)")
         print("  Command: \(shown)")
-        print("Waiting for local approval…")
-        fflush(stdout)
         try await requireUserApproval(
-            reason: "Run with a GitHub token for \(owner)/\(repos.joined(separator: ",")) (\(scope)): \(shown.count > 160 ? String(shown.prefix(160)) + "…" : shown)"
+            action: "run with a GitHub token for \(owner)/\(repos.joined(separator: ",")) (\(scope)): \(shown.count > 160 ? String(shown.prefix(160)) + "…" : shown)"
         )
 
         let jwt = try appJWT(app)

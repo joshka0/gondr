@@ -26,7 +26,7 @@ enum Hetzner {
         let project = try validProject(try options.required("--project"))
         var token = try readSecretFromTerminal(prompt: "Hetzner Cloud API token for \(project): ")
         defer { token.resetBytes(in: 0..<token.count) }
-        try await requireUserApproval(reason: "Store the Hetzner Cloud token for project \(project) in Keychain.")
+        try await requireUserApproval(action: "store the Hetzner Cloud token for project \(project) in Keychain.")
         try parent(project).write(token)
         print("import=complete")
         print("keychain_service=gondr-token.hetzner")

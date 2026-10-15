@@ -70,7 +70,7 @@ enum OpenRouter {
         guard key.starts(with: Data("sk-or-".utf8)) else {
             throw FactoryError.message("An OpenRouter key starts with sk-or-")
         }
-        try await requireUserApproval(reason: "Store the OpenRouter management key for \(account) in Keychain.")
+        try await requireUserApproval(action: "store the OpenRouter management key for \(account) in Keychain.")
         try parent(account).write(key)
         print("import=complete")
         print("keychain_service=gondr-token.openrouter")
@@ -109,10 +109,8 @@ enum OpenRouter {
         print("  Limit: $\(limitText) (reset: \(reset))")
         print("  Expires: \(expiresAt)")
         print("  Destination: \(destination.label(secret))")
-        print("Waiting for local approval…")
-        fflush(stdout)
         try await requireUserApproval(
-            reason: "Create OpenRouter key \(name) with a $\(limitText) \(reset) limit, and store it as \(secret)."
+            action: "create OpenRouter key \(name) with a $\(limitText) \(reset) limit, and store it as \(secret)."
         )
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
@@ -150,9 +148,7 @@ enum OpenRouter {
         print("OpenRouter key revocation")
         print("  Account: \(account)")
         print("  Name: \(name)")
-        print("Waiting for local approval…")
-        fflush(stdout)
-        try await requireUserApproval(reason: "Delete the OpenRouter key \(name).")
+        try await requireUserApproval(action: "delete the OpenRouter key \(name).")
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
 
