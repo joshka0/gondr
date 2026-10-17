@@ -68,10 +68,16 @@ enum Cloudflare {
         let secret = try options.required("--infisical-secret")
 
         // Zone identity and zone permissions travel together: an account-only
-        // mint carries neither, a zone mint carries all three.
+        // mint carries neither, a zone mint carries all three. `--zone '*'`
+        // means every zone of the account (also needed to create a zone): it
+        // takes no zone id and lives at most a day.
+        let allZones = zoneName == "*"
         guard (zoneName != nil || zoneID != nil) == !zonePermissions.isEmpty,
-              (zoneName != nil) == (zoneID != nil) else {
-            throw FactoryError.message("Zone name, zone id, and zone permissions are both-or-neither")
+              allZones ? zoneID == nil : (zoneName != nil) == (zoneID != nil) else {
+            throw FactoryError.message("Zone name, zone id, and zone permissions are both-or-neither; --zone '*' takes no --zone-id")
+        }
+        guard !allZones || (expiresIn.map { $0 <= 24 * 3600 } ?? false) else {
+            throw FactoryError.message("--zone '*' needs --expires-in of 24h or less")
         }
         guard buckets.isEmpty == bucketPermissions.isEmpty else {
             throw FactoryError.message("--r2-bucket and --bucket-permission are both-or-neither")
@@ -86,7 +92,7 @@ enum Cloudflare {
             throw FactoryError.message("R2 bucket, jurisdiction, or S3 secret prefix has an invalid shape")
         }
         guard name.count <= 120,
-              zoneName.map({ matches($0, "^[A-Za-z0-9.-]+$") }) ?? true,
+              zoneName.map({ allZones || matches($0, "^[A-Za-z0-9.-]+$") }) ?? true,
               matches(accountID, "^[0-9a-f]{32}$"),
               zoneID.map({ matches($0, "^[0-9a-f]{32}$") }) ?? true,
               isSecretName(secret) else {
@@ -106,7 +112,7 @@ enum Cloudflare {
         let expiresOn = expiresIn.map { iso8601(Date().addingTimeInterval($0)) }
         print("Cloudflare token request")
         print("  Name: \(name)")
-        print("  Zone: \(zoneName ?? "(account-only)")")
+        print("  Zone: \(allZones ? "* (every zone of the account)" : zoneName ?? "(account-only)")")
         print("  Permissions: \(permissions.joined(separator: ", "))")
         print("  Expires: \(expiresOn ?? "never")")
         if !buckets.isEmpty { print("  R2 buckets (\(jurisdiction)): \(buckets.joined(separator: ", "))") }
@@ -116,7 +122,7 @@ enum Cloudflare {
             print("  S3 keys: \(destination.label("\(s3Prefix)_ACCESS_KEY_ID")), \(destination.label("\(s3Prefix)_SECRET_ACCESS_KEY"))")
         }
         try await requireUserApproval(
-            action: "create Cloudflare token \(name) (\(permissions.joined(separator: ", "))), expiring \(expiresOn ?? "never"), and store it as \(secret)."
+            action: "create Cloudflare token \(name) (\(permissions.joined(separator: ", ")))\(allZones ? " on every zone of the account" : ""), expiring \(expiresOn ?? "never"), and store it as \(secret)."
         )
         var parentData = try parent.read()
         defer { parentData.resetBytes(in: 0..<parentData.count) }
@@ -132,10 +138,13 @@ enum Cloudflare {
                 ),
             ])
         }
-        if let zoneID, !zonePermissions.isEmpty {
+        if !zonePermissions.isEmpty {
+            let resources: [String: Any] = allZones
+                ? ["com.cloudflare.api.account.\(accountID)": ["com.cloudflare.api.account.zone.*": "*"]]
+                : ["com.cloudflare.api.account.zone.\(zoneID!)": "*"]
             policies.append([
                 "effect": "allow",
-                "resources": ["com.cloudflare.api.account.zone.\(zoneID)": "*"],
+                "resources": resources,
                 "permission_groups": try await groupIDs(
                     zonePermissions, scope: "com.cloudflare.api.account.zone", accountID: accountID, token: parentToken
                 ),

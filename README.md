@@ -83,7 +83,7 @@ first), so read them as claims. The agent process comes from the system.
 ```sh
 infra-token-factory mint cloudflare --name <token-name> --account-id <id> \
   --account-permission <name> [--account-permission ...] \
-  [--zone <zone> --zone-id <id> --zone-permission <name> ...] \
+  [--zone <zone> --zone-id <id> | --zone '*'] [--zone-permission <name> ...] \
   [--r2-bucket <bucket> ... --bucket-permission <name> ... [--r2-jurisdiction default|eu|fedramp]] \
   --expires-in <N>h|<N>d|never [--allow-ip <cidr> ...] \
   --infisical-project <id> --infisical-env <env> --infisical-path <path> \
@@ -124,6 +124,9 @@ infra-token-factory mint gitlab-deploy --account <label> --project <group/projec
 - `--expires-in` is required. Use `never` only for a token that must outlive a
   rotation cycle.
 - A child can never manage API tokens or service tokens.
+- `--zone '*'` grants the zone permissions on every zone of the account, which
+  creating a zone needs. It takes no `--zone-id` and needs `--expires-in` of
+  24h or less. Use it only for a one-off job that the operator approved.
 - `--r2-bucket` limits bucket permissions (for example
   `Workers R2 Storage Bucket Item Write`) to the named buckets.
 - `--r2-s3-secret-prefix` also writes R2 S3 keys: `<PREFIX>_ACCESS_KEY_ID` (the
