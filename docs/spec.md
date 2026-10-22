@@ -77,7 +77,8 @@ deny_agents = ["some-agent"]
 - Outside Git, the repo root is the nearest folder with `.infisical.json`.
 - The repo folder is `prefix` + the repo root relative to `repos_root`.
 - The project is `workspaceId` from `<repo root>/.infisical.json`, else `infisical.project`.
-- An explicit `--path` (or `ls <path>`) replaces the repo folder.
+- An explicit `--path` (or `ls <path>`, `--from`, the `onboard` folder) replaces the repo folder.
+  It must start with `/`; a relative path stops the command with exit 1.
 
 ## Boundaries
 
@@ -105,7 +106,10 @@ A boundary keeps one set of secrets with one set of directories.
 
 ### `gondr where <KEY> [--env E]`
 
-- Prints `<env>:<folder> <KEY>` per owner, with `  imported by: <folders>` when other folders import it.
+- Prints `<env>:<folder> <KEY>` per owner, with `  imported by: <folders>` appended on the same line when other folders import it.
+- Finds importers in every folder of the environment, also folders with no keys of their own. It lists them with
+  one `GET /api/v2/folders?path=/&recursive=true`; each folder's full path is its `relativePath` field
+  (Infisical returns paths relative to the queried `path`). Then one `GET /api/v2/secret-imports` per folder.
 - Makes no state-changing request.
 - A missing key exits 1 and prints no owner line.
 
@@ -144,7 +148,7 @@ A boundary keeps one set of secrets with one set of directories.
 - Inside boundary B, the vault must start with `B.vault_prefix`. Outside every boundary, a vault
   must not start with any boundary's `vault_prefix`. A stop exits 77.
 - If the vault starts with `B.vault_prefix` and the command's basename is in `B.deny_agents`: exit 77.
-- Execs `<binary> run --vault V -- /bin/sh -c '<append Infisical host to NO_PROXY and no_proxy>; exec "$@"' sh <cmd...>`
+- Execs `<binary> run --vault V -- /bin/sh -c '<export HOME=<real home>, append Infisical host to NO_PROXY and no_proxy>; exec "$@"' sh <cmd...>`
   with `AGENT_VAULT_ADDR`, `AGENT_VAULT_TOKEN`, `AGENT_VAULT_VAULT`, `AGENT_VAULT_TELEMETRY=false`,
   and `HOME` set to a gondr state folder for the broker CLI. The child gets the real `HOME` back.
 - The agent token never appears in argv or output.
@@ -155,6 +159,14 @@ A boundary keeps one set of secrets with one set of directories.
 - A folder in any boundary: exit 1.
 - For each service, the reference is the repo's own key unless its value hash equals the shared
   value's hash; then the shared reference wins. A service with neither: `skip <name>`.
+- `--admin-home DIR` (or `AGENT_VAULT_ADMIN_HOME`) is the `HOME` of an `agent-vault auth login` session.
+  It is valid when `DIR/.agent-vault/session.json` exists; that file holds `{"address": <broker URL>, "token": <admin token>}`.
+  `--dry-run` needs no admin home.
+- Every broker CLI call (`vault list|create|agent list|agent add|service add|credential-store sync`) runs with `HOME=DIR`.
+- The policy is set with `PATCH <address>/v1/vaults/<vault>/settings`, body `{"unmatched_host_policy": "passthrough"}`,
+  `Authorization: Bearer <admin token>`. The sync is `<binary> vault credential-store sync <vault>`.
+- A `[services.X]` table may be empty; every missing field fills from the catalog template whose `id` is `X`
+  (or `template = "<id>"`).
 - `--dry-run` prints `plan <service>: <hosts> <- <key> (<source>)` lines and writes nothing.
 - Otherwise: create folder `<folder>/<references_folder>`, publish each reference as in `set`,
   create the vault on the `infisical` credential store if missing, grant `grant_agents`, add services,
@@ -166,6 +178,8 @@ A boundary keeps one set of secrets with one set of directories.
   It never prints a response body, a token, a client secret or a value.
 - A network error prints `gondr: <METHOD> <path> -> <reason>` and exits 1, with no traceback.
 - Every request sends `User-Agent: gondr/<version>`.
+- HTTP 429: wait `Retry-After` seconds (else 1, 2, 4, 8; at most 30), then send the request again.
+  After 5 attempts, fail as any HTTP error does.
 
 ## Failure list
 

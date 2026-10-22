@@ -74,11 +74,12 @@ def cmd_agent(cfg, scope, args):
     # `agent-vault run` replaces NO_PROXY. Infisical signs in with its own identity, so it
     # bypasses the broker; the shell adds its host back before the agent starts.
     host = shlex.quote(urllib.parse.urlsplit(cfg.url).hostname or "")
-    script = f'export NO_PROXY="$NO_PROXY,{host}" no_proxy="$NO_PROXY,{host}"; exec "$@"'
+    # The broker CLI runs with a gondr HOME; the agent gets the real HOME back.
+    script = (f'export HOME={shlex.quote(str(Path.home()))} NO_PROXY="$NO_PROXY,{host}" '
+              f'no_proxy="$NO_PROXY,{host}"; exec "$@"')
     env = {**os.environ, "AGENT_VAULT_ADDR": av["address"], "AGENT_VAULT_TOKEN": token,
            "AGENT_VAULT_VAULT": vault, "AGENT_VAULT_TELEMETRY": "false", "HOME": str(client_home)}
-    argv = [av["binary"], "run", "--vault", vault, "--", "/usr/bin/env", f"HOME={Path.home()}",
-            "/bin/sh", "-c", script, "sh", *args]
+    argv = [av["binary"], "run", "--vault", vault, "--", "/bin/sh", "-c", script, "sh", *args]
     try:
         os.execvpe(av["binary"], argv, env)
     except FileNotFoundError:
@@ -99,7 +100,9 @@ def services(cfg, av, wanted):
     """Service entries from the config, with missing fields filled from the broker catalog."""
     out, catalog = {}, None
     for name in wanted:
-        svc = dict(cfg.services.get(name) or die(f"service {name} is not in the config"))
+        if name not in cfg.services:
+            die(f"service {name} is not in the config")
+        svc = dict(cfg.services[name])
         if not all(k in svc for k in ("hosts", "auth", "key")):
             if catalog is None:
                 r = run([av["binary"], "catalog", "--json", "--address", av["address"]],
@@ -147,7 +150,7 @@ def cmd_onboard(cfg, scope, args):
     if len(rest) != 1:
         die("usage: gondr onboard <folder> --admin-home DIR [--repo-dir DIR] [--vault NAME] "
             "[--services a,b] [--dry-run]")
-    folder = "/" + rest[0].strip("/")
+    folder = scope.absolute(rest[0])
     if not folder.startswith(cfg.prefix + "/"):
         die(f"{folder} is not a repo folder under {cfg.prefix}")
     b = scope.owner_boundary(folder)

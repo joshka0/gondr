@@ -126,9 +126,15 @@ class Scope:
                 die(f"a {b.name} directory reaches only {b.prefix}, not {path}")
         return path
 
+    @staticmethod
+    def absolute(path):
+        if not path.startswith("/"):
+            die(f"{path} is not an absolute Infisical folder", f"pass /{path}")
+        return path.rstrip("/") or "/"
+
     def folder(self, explicit=None):
         if explicit:
-            return self.guard("/" + explicit.strip("/"))
+            return self.guard(self.absolute(explicit))
         if not self.root or not self.root.is_relative_to(self.cfg.repos_root):
             die(f"not inside a repo under {self.cfg.repos_root}", "pass --path <infisical folder>")
         rel = self.root.relative_to(self.cfg.repos_root).as_posix()

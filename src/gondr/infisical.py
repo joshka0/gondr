@@ -4,6 +4,7 @@ import os
 import re
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,6 +15,7 @@ from gondr.common import die, env_secret, keychain, parse
 # Infisical Cloud's Cloudflare rejects the default urllib agent (error 1010).
 UA = f"gondr/{__version__}"
 KEY = re.compile(r"^[A-Z][A-Z0-9_]*$")
+RETRIES = 5
 
 # Inside `agent-vault run`, SSL_CERT_FILE names only the broker CA, and Infisical bypasses the
 # broker. Trust the system CAs as well.
@@ -34,18 +36,25 @@ def http(base, method, path, token=None, query=None, body=None, allow=()):
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, method=method, headers=headers,
                                  data=None if body is None else json.dumps(body).encode())
-    try:
-        with urllib.request.urlopen(req, context=TLS, timeout=30) as resp:
-            return resp.status, json.load(resp)
-    except urllib.error.HTTPError as e:
-        e.close()
-        if e.code in allow:
-            return e.code, {}
-        die(f"{method} {path} -> HTTP {e.code}")
-    except urllib.error.URLError as e:
-        die(f"{method} {path} -> {e.reason}")
-    except (OSError, ValueError) as e:
-        die(f"{method} {path} -> {type(e).__name__}")
+    for attempt in range(RETRIES):
+        try:
+            with urllib.request.urlopen(req, context=TLS, timeout=30) as resp:
+                return resp.status, json.load(resp)
+        except urllib.error.HTTPError as e:
+            retry_after = e.headers.get("Retry-After", "") if e.headers else ""
+            e.close()
+            if e.code == 429 and attempt + 1 < RETRIES:
+                # Rate limited: wait as the server asks, then send the same request again.
+                time.sleep(min(int(retry_after) if retry_after.isdigit() else 2 ** attempt, 30))
+                continue
+            if e.code in allow:
+                return e.code, {}
+            die(f"{method} {path} -> HTTP {e.code}")
+        except urllib.error.URLError as e:
+            die(f"{method} {path} -> {e.reason}")
+        except (OSError, ValueError) as e:
+            die(f"{method} {path} -> {type(e).__name__}")
+    die(f"{method} {path} -> HTTP 429")
 
 
 class Client:
@@ -85,6 +94,12 @@ class Client:
             "projectId": self.project, "environment": env, "secretPath": "/", "recursive": "true",
             "includeImports": "false", "viewSecretValue": "false", "expandSecretReferences": "false"})
         return [(s["secretPath"].rstrip("/") or "/", s["secretKey"]) for s in data.get("secrets", [])]
+
+    def all_folders(self, env):
+        """Every folder of the environment, also the ones that hold no keys of their own."""
+        _, data = self.call("GET", "/api/v2/folders", {"projectId": self.project, "environment": env,
+                                                       "path": "/", "recursive": "true"})
+        return {f["relativePath"] for f in data.get("folders", []) if f.get("relativePath")}
 
     def importers(self, env, folders):
         out = {}
@@ -168,7 +183,8 @@ def cmd_where(cfg, scope, args):
     owners = sorted({p for p, k in pairs if k == key and scope.owner_boundary(p) == here})
     if not owners:
         die(f"{key} is not stored in {env}", "ask the operator to add it, or publish it with `gondr set`")
-    users = client.importers(env, sorted({p for p, _ in pairs} | {cfg.prefix}))
+    # An importer can hold no keys of its own, so walk every folder, not only the owners.
+    users = client.importers(env, sorted({p for p, _ in pairs} | {"/", cfg.prefix} | client.all_folders(env)))
     for o in owners:
         imp = users.get(o, [])
         print(f"{env}:{o} {key}" + (f"  imported by: {' '.join(sorted(imp))}" if imp else ""))
@@ -182,7 +198,7 @@ def cmd_need(cfg, scope, args):
     env = check_env(cfg, opts.get("env", cfg.default_environment))
     path = scope.folder(opts.get("path"))
     if "from" in opts:
-        scope.guard("/" + opts["from"].strip("/"))
+        scope.guard(scope.absolute(opts["from"]))
     client = Client(cfg, scope.project()).login()
     own, imports = client.list_folder(env, path)
     if key in own or any(key in keys for _, keys in imports):
@@ -192,7 +208,7 @@ def cmd_need(cfg, scope, args):
     pool = (here.shared or here.prefix) if here else cfg.shared
     refs = cfg.agent_vault["references_folder"] if cfg.agent_vault else "agent-vault"
     # <shared>/agent-vault is Agent Vault's input folder, not an owner to import from.
-    owners = ["/" + opts["from"].strip("/")] if "from" in opts else sorted(
+    owners = [opts["from"].rstrip("/")] if "from" in opts else sorted(
         {p for p, k in client.all_secret_paths(env)
          if k == key and (p == pool or p.startswith(pool + "/")) and p != f"{cfg.shared}/{refs}"})
     if not owners:
