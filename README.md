@@ -1,0 +1,98 @@
+# gondr
+
+`gondr` lets coding agents (Claude Code, Codex, opencode and others) use secrets without seeing their values.
+It drives two open-source Infisical products:
+
+- [Infisical](https://infisical.com): the secret store. `gondr` finds the folder of the current repo,
+  lists key names, shares keys by import, publishes values from stdin, and runs commands with the folder's secrets.
+- [Infisical Agent Vault](https://github.com/Infisical/agent-vault): a credential proxy. `gondr` starts an
+  agent behind the proxy, and the proxy adds the key to requests for a mapped host.
+
+`gondr` is one Python file set with no dependencies besides the standard library (Python 3.11 or later).
+
+## Install
+
+```sh
+uv tool install gondr      # or: pipx install gondr
+```
+
+You also need the [`infisical` CLI](https://infisical.com/docs/cli/overview) for `gondr run`, and the
+`agent-vault` binary for `gondr agent` and `gondr onboard`.
+
+## Set up
+
+1. Create an Infisical [machine identity](https://infisical.com/docs/documentation/platform/identities/universal-auth)
+   with Universal Auth. Give it access to your project.
+2. Store its client ID and secret in the macOS Keychain, or export them as
+   `INFISICAL_UNIVERSAL_AUTH_CLIENT_ID` and `INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET`.
+3. Copy [`config.example.toml`](config.example.toml) to `~/.config/gondr/config.toml` and edit it.
+
+## Folder layout
+
+`gondr` maps each local repo to one Infisical folder:
+
+| Local | Infisical folder | Holds |
+| --- | --- | --- |
+| `~/repos/acme/api` | `/repos/acme/api` | keys of that repo, and imports of shared folders |
+| - | `/shared/<vendor>` | one shared key, stored once |
+| - | `/repos/acme/api/agent-vault` | Agent Vault references for that repo's vault |
+
+A linked Git worktree maps to the folder of its main checkout. A repo with `.infisical.json` uses its `workspaceId` as the project.
+
+## Commands
+
+| Command | Does |
+| --- | --- |
+| `gondr ls [path]` | Key names, imports and subfolders of a folder |
+| `gondr where <KEY>` | Folders that hold a key, and the folders that import them |
+| `gondr need <KEY>` | Import the shared folder that owns a key into this repo's folder |
+| `gondr set <KEY> < value` | Create or update a key from stdin |
+| `gondr run -- <cmd>` | Run a command with the folder's secrets in its environment |
+| `gondr agent <cmd>` | Run an agent through the repo's Agent Vault vault |
+| `gondr onboard <folder> --admin-home DIR` | Give a repo its own vault: references, grants, services |
+
+Every command takes `--env <environment>`. The default is `dev`.
+
+## Boundaries
+
+A boundary keeps one set of secrets with one set of directories, for example a client's repos:
+
+```toml
+[[boundary]]
+name = "Acme"
+dir = "~/repos/acme"
+prefix = "/repos/acme"
+shared = "/repos/acme/tooling"
+vault_prefix = "acme"
+deny_agents = ["some-agent"]
+```
+
+- A command in `~/repos/acme` reaches only `/repos/acme`, and only an `acme*` vault.
+- A command elsewhere cannot reach `/repos/acme` or an `acme*` vault.
+- `deny_agents` lists agent commands that never run on that boundary's vaults.
+- `gondr` checks the boundary before it reads a credential or sends a request.
+
+## Threat model
+
+`gondr` keeps secret values out of an agent's context by accident. It does not stop an agent that wants a value.
+
+- Discovery asks Infisical for names only (`viewSecretValue=false`). Errors print the request and status, never a response body.
+- `gondr set` reads the value from stdin, so it is not in argv, shell history or the transcript.
+- `gondr run -- env` prints every value of the folder. Use `gondr agent` and Agent Vault when the agent must not read a key at all.
+- Agent Vault keeps keys out of the agent process. A proxied process can still use a key through the proxy.
+- Boundaries are a convention that `gondr` enforces. Infisical does not: the identity can read every folder it has access to.
+  For a hard limit, give each boundary its own identity and project.
+- Each command signs in again. Set a short access token TTL on the identity.
+
+## Test
+
+```sh
+python3 tests/gate.py --report reports/gate.json
+```
+
+The gate runs the real CLI against a local fake Infisical server and stub `git`, `security`, `infisical` and
+`agent-vault` executables. It writes a JSON report with every request and the command that reproduces it.
+
+## License
+
+MIT

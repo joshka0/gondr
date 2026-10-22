@@ -1,0 +1,45 @@
+# gondr config. Copy to ~/.config/gondr/config.toml and edit.
+[infisical]
+url = "https://eu.infisical.com"
+project = "<infisical project id>"
+
+[infisical.credentials]
+# source = "env" reads INFISICAL_UNIVERSAL_AUTH_CLIENT_ID and _SECRET
+source = "keychain"
+keychain_account = "gondr"
+client_id_service = "infisical-client-id"
+client_secret_service = "infisical-client-secret"
+
+[layout]
+repos_root = "~/repos"
+prefix = "/repos"
+shared = "/shared"
+
+[agent_vault]
+binary = "agent-vault"
+address = "http://agent-vault.example:14321"
+default_vault = "shared"
+grant_agents = ["my-agent"]
+references_folder = "agent-vault"
+token = { source = "keychain", account = "my-agent", service = "agent-vault-token" }
+# token = { source = "env", name = "AGENT_VAULT_TOKEN" }
+
+# A client's repos keep their own secrets and vaults.
+# [[boundary]]
+# name = "Acme"
+# dir = "~/repos/acme"
+# prefix = "/repos/acme"
+# shared = "/repos/acme/tooling"
+# vault_prefix = "acme"
+# deny_agents = ["some-agent"]
+
+# Services for `gondr onboard`. Leave out hosts, auth and key to take them from `agent-vault catalog --json`.
+[services.openai]
+hosts = ["api.openai.com"]
+auth = "bearer"
+key = "OPENAI_API_KEY"
+shared = "${dev.shared.vendors.openai.OPENAI_API_KEY}"
+project_keys = ["OPENAI_API_KEY"]
+
+[services.anthropic]
+shared = "${dev.shared.vendors.anthropic.ANTHROPIC_API_KEY}"
