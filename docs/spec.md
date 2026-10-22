@@ -63,6 +63,7 @@ dir = "~/repos/acme"
 prefix = "/repos/acme"
 shared = "/repos/acme/tooling"
 vault_prefix = "acme"
+allow_vaults = ["shared"]   # other vaults a boundary directory may use; default []
 deny_agents = ["some-agent"]
 ```
 
@@ -145,9 +146,10 @@ A boundary keeps one set of secrets with one set of directories.
 
 - Vault: `--vault`, else `vault` from the nearest `agent-vault.json` between the working directory
   and the repo root, else `agent_vault.default_vault`.
-- Inside boundary B, the vault must start with `B.vault_prefix`. Outside every boundary, a vault
-  must not start with any boundary's `vault_prefix`. A stop exits 77.
-- If the vault starts with `B.vault_prefix` and the command's basename is in `B.deny_agents`: exit 77.
+- Inside boundary B, the vault must start with `B.vault_prefix` or be listed in `B.allow_vaults`.
+  Outside every boundary, a vault must not start with any boundary's `vault_prefix`. A stop exits 77.
+- If the command's basename is in `B.deny_agents`, and the directory is inside B or the vault starts
+  with `B.vault_prefix`: exit 77. This holds also on an allowed vault such as `shared`.
 - Execs `<binary> run --vault V -- /bin/sh -c '<export HOME=<real home>, append Infisical host to NO_PROXY and no_proxy>; exec "$@"' sh <cmd...>`
   with `AGENT_VAULT_ADDR`, `AGENT_VAULT_TOKEN`, `AGENT_VAULT_VAULT`, `AGENT_VAULT_TELEMETRY=false`,
   and `HOME` set to a gondr state folder for the broker CLI. The child gets the real `HOME` back.
@@ -198,7 +200,8 @@ A boundary keeps one set of secrets with one set of directories.
 - F13 `env` credentials are ignored, or Keychain is read when `source = "env"`.
 - F14 A missing config file gives a traceback instead of a hint.
 - F15 `agent` picks the wrong vault (nearest `agent-vault.json`, stop at repo root).
-- F16 `agent` runs a denied agent on a boundary vault, or a boundary directory on a non-boundary vault.
+- F16 `agent` runs a denied agent inside a boundary (on any vault) or on a boundary vault, runs a boundary
+  directory on a vault that is neither its own nor in `allow_vaults`, or refuses an `allow_vaults` vault.
 - F17 `agent` puts the agent token in argv or output.
 - F18 An HTTP or network error prints a traceback or a body.
 - F19 `onboard --dry-run` writes anything.

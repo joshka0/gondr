@@ -59,14 +59,15 @@ def cmd_agent(cfg, scope, args):
         die("nothing to run", "gondr agent <command> [args...]")
     vault = vault or nearest_vault(scope) or av["default_vault"]
     here = scope.boundary()
-    if here and not here.holds_vault(vault):
-        die(f"a {here.name} directory needs a {here.name} vault ({here.vault_prefix}*), not {vault}", code=77)
+    if here and not (here.holds_vault(vault) or vault in here.allow_vaults):
+        die(f"a {here.name} directory needs a {here.name} vault ({here.vault_prefix}*) "
+            f"or one of allow_vaults, not {vault}", code=77)
     for b in cfg.boundaries:
-        if b.holds_vault(vault):
-            if here is not b:
-                die(f"vault {vault} belongs to {b.name}; use it only from a directory under {b.dir}", code=77)
-            if os.path.basename(args[0]) in b.deny_agents:
-                die(f"{args[0]} is denied on {b.name} vaults", code=77)
+        if b.holds_vault(vault) and here is not b:
+            die(f"vault {vault} belongs to {b.name}; use it only from a directory under {b.dir}", code=77)
+        # A denied agent never does a boundary's work, whatever vault it would use.
+        if (here is b or b.holds_vault(vault)) and os.path.basename(args[0]) in b.deny_agents:
+            die(f"{args[0]} is denied for {b.name} work", code=77)
     token = agent_token(av)
     client_home = state_home() / "agent-vault-home"
     client_home.mkdir(parents=True, exist_ok=True)

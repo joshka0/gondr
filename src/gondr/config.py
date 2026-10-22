@@ -28,6 +28,7 @@ class Boundary:
     prefix: str
     shared: str | None = None
     vault_prefix: str | None = None
+    allow_vaults: list = field(default_factory=list)
     deny_agents: list = field(default_factory=list)
 
     def holds(self, path):
@@ -84,7 +85,7 @@ def load():
         services=raw.get("services") or {},
         boundaries=[Boundary(name=b["name"], dir=expand(b["dir"]), prefix="/" + b["prefix"].strip("/"),
                              shared=b.get("shared"), vault_prefix=b.get("vault_prefix"),
-                             deny_agents=b.get("deny_agents", []))
+                             allow_vaults=b.get("allow_vaults", []), deny_agents=b.get("deny_agents", []))
                     for b in raw.get("boundary", [])],
     )
 

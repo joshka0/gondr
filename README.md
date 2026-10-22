@@ -64,12 +64,13 @@ dir = "~/repos/acme"
 prefix = "/repos/acme"
 shared = "/repos/acme/tooling"
 vault_prefix = "acme"
+allow_vaults = ["shared"]
 deny_agents = ["some-agent"]
 ```
 
-- A command in `~/repos/acme` reaches only `/repos/acme`, and only an `acme*` vault.
+- A command in `~/repos/acme` reaches only `/repos/acme`, and only an `acme*` vault or a vault in `allow_vaults`.
 - A command elsewhere cannot reach `/repos/acme` or an `acme*` vault.
-- `deny_agents` lists agent commands that never run on that boundary's vaults.
+- `deny_agents` lists agent commands that never do that boundary's work: not in its directories, and not on its vaults.
 - `gondr` checks the boundary before it reads a credential or sends a request.
 
 ## Threat model

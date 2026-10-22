@@ -31,6 +31,7 @@ token = { source = "keychain", account = "my-agent", service = "agent-vault-toke
 # prefix = "/repos/acme"
 # shared = "/repos/acme/tooling"
 # vault_prefix = "acme"
+# allow_vaults = ["shared"]
 # deny_agents = ["some-agent"]
 
 # Services for `gondr onboard`. Leave out hosts, auth and key to take them from `agent-vault catalog --json`.

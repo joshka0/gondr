@@ -69,6 +69,49 @@ def f16_agent_stops_denied_agents_and_boundary_mismatches_with_exit_77(c):
 
 
 @case
+def f16_agent_allow_vaults_admit_listed_vaults_in_a_boundary_dir_but_denied_agents_stay_denied(c):
+    # (d) without allow_vaults an Acme directory is refused on `shared`
+    c.clear_stubs()
+    r = c.run(["agent", "claude"], cwd=c.acme)
+    c.check(r.code == 77 and "Acme" in r.text and vault_runs(c) == [],
+            "F16 without allow_vaults the Acme dir is refused on the default vault `shared` (exit 77, Acme named, no exec)")
+    c.configure(allow_vaults=["shared"])
+    # (a) a listed vault runs: here through the default vault and through --vault
+    for label, args in (("default vault", ["claude", "go"]), ("--vault shared", ["--vault", "shared", "claude", "go"])):
+        c.clear_stubs()
+        r = c.run(["agent"] + args, cwd=c.acme)
+        runs = vault_runs(c)
+        c.check(r.code == 0 and len(runs) == 1 and runs[0]["env"]["AGENT_VAULT_VAULT"] == "shared",
+                "F16 allow_vaults: the Acme dir runs on `shared` via the %s" % label)
+    c.clear_stubs()
+    r = c.run(["agent", "--vault", "acme-api-dev", "claude"], cwd=c.acme)
+    c.check(r.code == 0 and len(vault_runs(c)) == 1, "allow_vaults does not remove the vault_prefix rule: acme-* still runs")
+    # (b) a denied agent is refused inside the boundary, also on the allowed vault
+    for agent in ("some-agent", "other-agent", "third-agent", "/opt/ai/bin/third-agent"):
+        c.clear_stubs()
+        r = c.run(["agent", "--vault", "shared", agent, "go"], cwd=c.acme)
+        c.check(r.code == 77 and vault_runs(c) == [] and c.stubs("security") == [],
+                "F16 denied agent %s on the allowed vault `shared` inside Acme: exit 77, no exec, no Keychain read" % agent)
+    c.clear_stubs()
+    r = c.run(["agent", "some-agent", "go"], cwd=c.acme)
+    c.check(r.code == 77 and vault_runs(c) == [], "F16 denied agent on the default (allowed) vault inside Acme: exit 77")
+    # (c) a vault that is neither acme* nor listed is refused
+    for vault in ("team-v", "shared2", "xacme"):
+        c.clear_stubs()
+        r = c.run(["agent", "--vault", vault, "claude"], cwd=c.acme)
+        c.check(r.code == 77 and "Acme" in r.text and vault_runs(c) == [],
+                "F16 vault %s is neither acme* nor in allow_vaults: exit 77, Acme named, no exec" % vault)
+    # outside every boundary nothing changes
+    c.clear_stubs()
+    r = c.run(["agent", "--vault", "acme-api-dev", "claude"], cwd=c.app)
+    c.check(r.code == 77 and "Acme" in r.text and vault_runs(c) == [], "outside Acme a vault with the acme prefix is still refused")
+    c.clear_stubs()
+    r = c.run(["agent", "--vault", "shared", "some-agent", "go"], cwd=c.app)
+    c.check(r.code == 0 and len(vault_runs(c)) == 1, "control: outside Acme a denied agent name still runs on `shared`")
+    c.finish()
+
+
+@case
 def f17_agent_exec_shape_env_and_token_hygiene(c):
     host = "127.0.0.1"
     cmd = ["childprobe", "--task", "two words"]

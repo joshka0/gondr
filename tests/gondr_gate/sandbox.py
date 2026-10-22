@@ -45,7 +45,7 @@ CATALOG = [
 
 
 def config_text(url, *, creds="keychain", token="keychain", boundary=True, services=SERVICES_TOML,
-                agent_vault=True):
+                agent_vault=True, allow_vaults=()):
     t = '[infisical]\nurl = "%s"\nproject = "%s"\n' % (url, PROJECT)
     t += 'environments = ["dev", "staging", "prod"]\ndefault_environment = "dev"\nwarn_environments = ["prod"]\n'
     t += '\n[infisical.credentials]\nsource = "%s"\n' % creds
@@ -65,6 +65,7 @@ def config_text(url, *, creds="keychain", token="keychain", boundary=True, servi
     if boundary:
         t += ('\n[[boundary]]\nname = "Acme"\ndir = "~/repos/acme"\nprefix = "/repos/acme"\n'
               'shared = "/repos/acme/tooling"\nvault_prefix = "acme"\n'
+              + ('allow_vaults = [%s]\n' % ", ".join('"%s"' % v for v in allow_vaults) if allow_vaults else "") +
               'deny_agents = ["some-agent", "other-agent", "third-agent"]\n')
     return t
 
