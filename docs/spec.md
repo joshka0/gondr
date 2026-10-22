@@ -9,6 +9,7 @@ Each `F` item names a failure that a test must catch.
 
 - Infisical: the secret store. Commands `run`, `ls`, `where`, `need`, `set`.
 - Infisical Agent Vault: a credential proxy. Commands `agent` and `onboard`.
+- Discovery for agents: `status`, `find`, `check`.
 
 `gondr` never asks Infisical for a secret value. Every secrets read sends
 `viewSecretValue=false`. The one exception is `onboard`, which compares values as
@@ -76,7 +77,10 @@ deny_agents = ["some-agent"]
 - The repo root is the parent of `git rev-parse --path-format=absolute --git-common-dir`.
   A linked worktree therefore maps to its main checkout.
 - Outside Git, the repo root is the nearest folder with `.infisical.json`.
-- The repo folder is `prefix` + the repo root relative to `repos_root`.
+- A `[folders]` table maps local directories to folders (`"~/repos/acme/web-v2" = "/repos/acme/web"`).
+  When the repo root is under one or more of them, the longest match is the repo folder.
+- Else the repo folder is `prefix` + the repo root relative to `repos_root`.
+- A mapped folder passes the boundary check like any other path.
 - The project is `workspaceId` from `<repo root>/.infisical.json`, else `infisical.project`.
 - An explicit `--path` (or `ls <path>`, `--from`, the `onboard` folder) replaces the repo folder.
   It must start with `/`; a relative path stops the command with exit 1.
@@ -141,6 +145,73 @@ A boundary keeps one set of secrets with one set of directories.
 - Execs `infisical run --domain=<url>/api --projectId=<id> --env=<E> --path=<P> --silent -- env -u INFISICAL_TOKEN <cmd...>`.
 - The exec environment holds `INFISICAL_TOKEN` (the machine identity access token) and the inherited env.
 - `<cmd...>` stays intact, including spaces and arguments that look like flags.
+
+### Vault discovery (used by `status`, `find`, `check`)
+
+- The pane's vault is picked as in `agent` (`--vault`, nearest `agent-vault.json`, default), and must pass
+  the same boundary rules; a vault that fails them is reported as `refused`, not used.
+- If the process already runs behind the broker (`AGENT_VAULT_TOKEN` and `HTTPS_PROXY` are both set),
+  the vault is `$AGENT_VAULT_VAULT` and discovery uses the inherited `AGENT_VAULT_ADDR` and token.
+- Else discovery runs `<binary> vault discover --json` with `AGENT_VAULT_ADDR`, `AGENT_VAULT_TOKEN`,
+  `AGENT_VAULT_VAULT`, `AGENT_VAULT_TELEMETRY=false` and `HOME=<gondr state folder>/agent-vault-home`.
+- The reply is `{"vault": V, "services": [{"name", "host"}], "available_credentials": [names]}`.
+- No `[agent_vault]` table, a missing binary, a nonzero exit or bad JSON: the vault is `unavailable`
+  with a short reason. The command goes on; discovery never stops it.
+- The agent token never appears in argv or output.
+
+### `gondr status [--env E] [--json]`
+
+- Read only. One login, one secrets list of the repo folder (the `GET /api/v4/secrets` of `ls`), and vault discovery.
+- A secrets list that answers HTTP 404 means the folder does not exist. `status` then prints
+  `  folder does not exist: ...` in place of the `keys` and `import` lines, and `--json` has
+  `"folder_exists": false`. Exit 0. (`find` and `check` treat such a folder as empty.)
+- Text output, in this order:
+  - `repo: <repo root>` and `boundary: <name or ->`
+  - `infisical: <env>:<folder> (project <id>)`, then the `keys` and `import` lines of `ls`
+  - `vault: <V> (<source>)` where source is `--vault`, `agent-vault.json`, `default` or `this process`;
+    then `  proxied here: yes|no`, then one `  host <host> (<service>)` line per service, sorted by host;
+    or `vault: <V> unavailable: <reason>` / `vault: <V> refused: <reason>`
+  - a `use:` block with three fixed lines:
+    `  env var  -> gondr run -- <cmd>`, `  host     -> gondr agent <agent>; call https://<host> with no auth header`,
+    `  other    -> gondr find <what>`
+- `--json` prints one object: `repo`, `boundary`, `env`, `project`, `folder`, `keys`, `imports`
+  (`[{"path", "keys"}]`), `vault` (`{"name", "source", "status": "ok"|"unavailable"|"refused", "reason",
+  "proxied_here", "services": [{"name", "host"}], "credentials"}`). Exit 0 also when the vault is unavailable.
+
+### `gondr find <words...> [--env E] [--json]`
+
+- A candidate matches when each word (case-insensitive) is a substring of at least one of its fields
+  (different words may match different fields):
+  a key's name; a service's name or host. Folder paths are not matched. Words shorter than 2 characters stop the command with exit 1.
+- Requests: one login, one secrets list of the repo folder, one recursive name list, and vault discovery. No import walk.
+- Candidates and routes, in this order; a key appears once, under its first route:
+  1. `proxied`: a vault service whose name or host matches. Route `call https://<host> in a gondr agent pane; send no auth header`.
+  2. `env`: a key that reaches the folder (own or imported). Route `gondr run -- <cmd>  (reads $<KEY>)`.
+  3. `import`: a key in a shared owner folder (`layout.shared`, or `B.shared` inside B; never the
+     references folder) that does not reach the folder. Route `gondr need <KEY>`; with more than one owner,
+     `gondr need <KEY> --from <owner>`, one line per owner.
+  4. `repo-owned`: a key only in other folders under `layout.prefix` (same boundary rules as `where`).
+     Route `ask the operator to move <KEY> from <folder> to a shared folder; never copy it`.
+  5. `not-mapped`: a `[services.X]` entry whose name or a host matches, not in the pane's vault.
+     Route `ask the operator: gondr onboard <folder> --admin-home <dir>`.
+- Text output: one line per hit, `<route kind> <KEY or host>: <route>`; sorted by kind order, then name.
+- No hit: print `missing: nothing matches "<words>"` and the operator command
+  `ask the operator: printf %s "$VALUE" | gondr set <NAME> --path <folder>`, where `<NAME>` is the words
+  joined by `_` in upper case when that is a valid key name, else `<NAME>`. Exit 1.
+- `--json` prints `{"query", "folder", "vault", "hits": [{"kind", "key", "host", "service", "folders", "route"}], "missing": bool, "operator_command"}`.
+- Folders outside the current boundary never appear (a boundary directory sees only its prefix).
+
+### `gondr check [--env E] [--file F] [--json] [NAME...]`
+
+- Names come from the arguments, else from `--file`, else from the first of `.env.example`, `.env.sample`,
+  `.env.template` in the working directory, then in the checkout top (`git rev-parse --show-toplevel`).
+  No names: exit 1 with a hint.
+- From a file, a name is the part left of the first `=` on a line that matches
+  `^\s*(export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=`. Comments and other lines are skipped.
+  The text right of `=` is never printed or sent.
+- Per name, one status, as `find` routes a key: `ok` (reaches the folder), `import` (`gondr need <NAME>`),
+  `repo-owned`, or `missing` (the operator `gondr set` command). Text: `<status> <NAME>[: <route>]`, sorted by name.
+- Exit 0 when every name is `ok`, else 1. `--json` prints `{"folder", "file", "names": [{"name", "status", "route"}]}`.
 
 ### `gondr agent [--vault V] <cmd...>`
 
@@ -208,3 +279,13 @@ A boundary keeps one set of secrets with one set of directories.
 - F20 `onboard` uses the project key when its hash equals the shared hash.
 - F21 A `[services.X]` entry without hosts or auth does not fill from the catalog.
 - F22 An unknown `--env` passes.
+- F23 `status`, `find` or `check` writes, or prints a value, token or `.env.example` value.
+- F24 `status` stops when the vault is unavailable, or reports a refused vault as usable.
+- F25 `status` ignores an already proxied process and starts discovery again.
+- F26 `find` misses a route kind, lists a key twice, or orders routes wrong.
+- F27 `find` shows folders outside the current boundary.
+- F28 `find` with no hit exits 0, or prints no operator `gondr set` command.
+- F29 `find` walks imports (one request per folder).
+- F31 `[folders]` is ignored, or a shorter match wins over a longer one.
+- F32 `status`, `find` or `check` stops on a missing repo folder (HTTP 404 on its list).
+- F30 `check` reads a value from the example file, exits 0 with a gap, or misreads `export NAME=` lines.

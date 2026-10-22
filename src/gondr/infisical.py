@@ -77,9 +77,18 @@ class Client:
         return http(self.cfg.url, method, path, self.token, query, body, allow)
 
     def list_folder(self, env, path):
-        _, data = self.call("GET", "/api/v4/secrets", {
+        """(own names, [(import path, names)])."""
+        listed = self.list_folder_if_exists(env, path, allow=())
+        assert listed is not None
+        return listed
+
+    def list_folder_if_exists(self, env, path, allow=(404,)):
+        """Like list_folder, but None when the folder does not exist."""
+        status, data = self.call("GET", "/api/v4/secrets", {
             "projectId": self.project, "environment": env, "secretPath": path, "includeImports": "true",
-            "viewSecretValue": "false", "expandSecretReferences": "false"})
+            "viewSecretValue": "false", "expandSecretReferences": "false"}, allow=allow)
+        if status in allow:
+            return None
         own = sorted(s["secretKey"] for s in data.get("secrets", []))
         imports = [(i.get("secretPath"), sorted(s["secretKey"] for s in i.get("secrets", [])))
                    for i in data.get("imports", [])]

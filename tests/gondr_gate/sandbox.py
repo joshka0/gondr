@@ -45,7 +45,7 @@ CATALOG = [
 
 
 def config_text(url, *, creds="keychain", token="keychain", boundary=True, services=SERVICES_TOML,
-                agent_vault=True, allow_vaults=()):
+                agent_vault=True, allow_vaults=(), folders=()):
     t = '[infisical]\nurl = "%s"\nproject = "%s"\n' % (url, PROJECT)
     t += 'environments = ["dev", "staging", "prod"]\ndefault_environment = "dev"\nwarn_environments = ["prod"]\n'
     t += '\n[infisical.credentials]\nsource = "%s"\n' % creds
@@ -62,6 +62,8 @@ def config_text(url, *, creds="keychain", token="keychain", boundary=True, servi
         else:
             t += 'token = { source = "env", name = "AGENT_VAULT_TOKEN" }\n'
     t += services
+    if folders:
+        t += '\n[folders]\n' + ''.join('"%s" = "%s"\n' % kv for kv in folders)
     if boundary:
         t += ('\n[[boundary]]\nname = "Acme"\ndir = "~/repos/acme"\nprefix = "/repos/acme"\n'
               'shared = "/repos/acme/tooling"\nvault_prefix = "acme"\n'
@@ -92,7 +94,10 @@ class Case:
         self.stub = {"keychain": {
             "infisical-client-id": CLIENT_ID,
             "infisical-client-secret": CLIENT_SECRET,
-            "agent-vault-token": AGENT_TOKEN}, "hashes": {}, "catalog": CATALOG}
+            "agent-vault-token": AGENT_TOKEN}, "hashes": {}, "catalog": CATALOG,
+            "discover": {"services": [{"name": "stripe", "host": "api.stripe.com"},
+                                      {"name": "github", "host": "api.github.com"}],
+                         "credentials": ["GITHUB_PAT", "STRIPE_API_KEY"]}}
         for d in (self.home, self.bin, self.config.parent):
             d.mkdir(parents=True)
         self.log.touch()

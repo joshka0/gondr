@@ -7,6 +7,11 @@ Infisical (secret store):
   gondr need <KEY> [--env E] [--path P] [--from F]  import KEY's shared owner folder into this repo folder
   gondr set <KEY> [--env E] [--path P]          publish a value read from stdin
 
+Discovery for agents (read only):
+  gondr status [--env E] [--json]               this repo's folder, keys, imports and vault
+  gondr find <words...> [--env E] [--json]      how to use a secret: env var, proxied host, import, or ask
+  gondr check [NAME...] [--file F] [--json]     which needed names (.env.example) reach this repo
+
 Infisical Agent Vault (credential proxy):
   gondr agent [--vault V] <cmd...>              run an agent through the repo's vault
   gondr onboard <folder> --admin-home DIR [--repo-dir DIR] [--vault NAME] [--services a,b] [--dry-run]
@@ -15,11 +20,12 @@ gondr prints key names, never values. Config: $GONDR_CONFIG or ~/.config/gondr/c
 """
 import sys
 
-from gondr import __version__, config, infisical, vault
+from gondr import __version__, config, guide, infisical, vault
 
 COMMANDS = {"run": infisical.cmd_run, "ls": infisical.cmd_ls, "where": infisical.cmd_where,
             "need": infisical.cmd_need, "set": infisical.cmd_set,
-            "agent": vault.cmd_agent, "onboard": vault.cmd_onboard}
+            "agent": vault.cmd_agent, "onboard": vault.cmd_onboard,
+            "status": guide.cmd_status, "find": guide.cmd_find, "check": guide.cmd_check}
 
 
 def main():

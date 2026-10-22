@@ -52,6 +52,7 @@ class Config:
     agent_vault: dict | None
     services: dict
     boundaries: list
+    folders: dict
 
 
 def load():
@@ -87,6 +88,7 @@ def load():
                              shared=b.get("shared"), vault_prefix=b.get("vault_prefix"),
                              allow_vaults=b.get("allow_vaults", []), deny_agents=b.get("deny_agents", []))
                     for b in raw.get("boundary", [])],
+        folders={expand(d): "/" + f.strip("/") for d, f in (raw.get("folders") or {}).items()},
     )
 
 
@@ -136,6 +138,10 @@ class Scope:
     def folder(self, explicit=None):
         if explicit:
             return self.guard(self.absolute(explicit))
+        # A [folders] entry maps a repo whose folder does not follow its path; the longest match wins.
+        mapped = [d for d in self.cfg.folders if self.root and self.root.is_relative_to(d)]
+        if mapped:
+            return self.guard(self.cfg.folders[max(mapped, key=lambda d: len(d.parts))])
         if not self.root or not self.root.is_relative_to(self.cfg.repos_root):
             die(f"not inside a repo under {self.cfg.repos_root}", "pass --path <infisical folder>")
         rel = self.root.relative_to(self.cfg.repos_root).as_posix()

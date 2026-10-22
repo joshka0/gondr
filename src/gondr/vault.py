@@ -28,6 +28,26 @@ def agent_token(av):
     return env_secret(t.get("name", "AGENT_VAULT_TOKEN"))
 
 
+def pick_vault(cfg, scope, explicit=None):
+    """(vault, source): --vault, the nearest agent-vault.json, or the default."""
+    if explicit:
+        return explicit, "--vault"
+    found = nearest_vault(scope)
+    return (found, "agent-vault.json") if found else (settings(cfg)["default_vault"], "default")
+
+
+def refusal(cfg, scope, vault):
+    """Why the boundary rules refuse this vault here, or None."""
+    here = scope.boundary()
+    if here and not (here.holds_vault(vault) or vault in here.allow_vaults):
+        return (f"a {here.name} directory needs a {here.name} vault ({here.vault_prefix}*) "
+                f"or one of allow_vaults, not {vault}")
+    for b in cfg.boundaries:
+        if b.holds_vault(vault) and here is not b:
+            return f"vault {vault} belongs to {b.name}; use it only from a directory under {b.dir}"
+    return None
+
+
 def nearest_vault(scope):
     """`vault` from the nearest agent-vault.json between the working directory and the checkout top."""
     top = git("rev-parse", "--show-toplevel")
@@ -57,14 +77,11 @@ def cmd_agent(cfg, scope, args):
         vault, args = args[1], args[2:]
     if not args:
         die("nothing to run", "gondr agent <command> [args...]")
-    vault = vault or nearest_vault(scope) or av["default_vault"]
+    vault, _ = pick_vault(cfg, scope, vault)
+    if reason := refusal(cfg, scope, vault):
+        die(reason, code=77)
     here = scope.boundary()
-    if here and not (here.holds_vault(vault) or vault in here.allow_vaults):
-        die(f"a {here.name} directory needs a {here.name} vault ({here.vault_prefix}*) "
-            f"or one of allow_vaults, not {vault}", code=77)
     for b in cfg.boundaries:
-        if b.holds_vault(vault) and here is not b:
-            die(f"vault {vault} belongs to {b.name}; use it only from a directory under {b.dir}", code=77)
         # A denied agent never does a boundary's work, whatever vault it would use.
         if (here is b or b.holds_vault(vault)) and os.path.basename(args[0]) in b.deny_agents:
             die(f"{args[0]} is denied for {b.name} work", code=77)

@@ -37,7 +37,8 @@ You also need the [`infisical` CLI](https://infisical.com/docs/cli/overview) for
 | - | `/shared/<vendor>` | one shared key, stored once |
 | - | `/repos/acme/api/agent-vault` | Agent Vault references for that repo's vault |
 
-A linked Git worktree maps to the folder of its main checkout. A repo with `.infisical.json` uses its `workspaceId` as the project.
+A linked Git worktree maps to the folder of its main checkout. A `[folders]` entry in the config
+maps a repo whose folder does not follow its path. A repo with `.infisical.json` uses its `workspaceId` as the project.
 
 ## Commands
 
@@ -50,6 +51,11 @@ A linked Git worktree maps to the folder of its main checkout. A repo with `.inf
 | `gondr run -- <cmd>` | Run a command with the folder's secrets in its environment |
 | `gondr agent <cmd>` | Run an agent through the repo's Agent Vault vault |
 | `gondr onboard <folder> --admin-home DIR` | Give a repo its own vault: references, grants, services |
+| `gondr status` | This repo's folder, keys, imports, vault and hosts |
+| `gondr find <what>` | How to use a secret: proxied host, env var, import, or the operator command |
+| `gondr check` | Which names in `.env.example` reach this repo |
+
+`status`, `find` and `check` take `--json`. Give your agents the block in [`docs/agents.md`](docs/agents.md).
 
 Every command takes `--env <environment>`. The default is `dev`.
 

@@ -15,6 +15,10 @@ repos_root = "~/repos"
 prefix = "/repos"
 shared = "/shared"
 
+# Repos whose Infisical folder does not follow their path. The longest match wins.
+# [folders]
+# "~/repos/acme/web-v2" = "/repos/acme/web"
+
 [agent_vault]
 binary = "agent-vault"
 address = "http://agent-vault.example:14321"

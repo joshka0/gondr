@@ -24,6 +24,10 @@ CASE_MODULES = [
     "cases_agent",
     "cases_errors",
     "cases_onboard",
+    "cases_folders",
+    "cases_status",
+    "cases_find",
+    "cases_check",
 ]
 
 if __name__ == "__main__":

@@ -12,17 +12,20 @@ def die(msg, hint=None, code=1) -> NoReturn:
     sys.exit(code)
 
 
-def keychain(account, service):
-    """A generic password from the macOS Keychain. The value never reaches output."""
+def keychain_value(account, service):
+    """A generic password from the macOS Keychain, or None. The value never reaches output."""
     try:
         r = subprocess.run(["security", "find-generic-password", "-a", account, "-s", service, "-w"],
                            capture_output=True, text=True)
     except FileNotFoundError:
-        die("the `security` tool is missing; Keychain works only on macOS",
-            'set source = "env" in the config')
-    if r.returncode != 0 or not r.stdout.strip():
-        die(f"Keychain item {service} for account {account} is missing", "store it with `security add-generic-password`")
-    return r.stdout.strip()
+        return None
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def keychain(account, service):
+    return keychain_value(account, service) or die(
+        f"Keychain item {service} for account {account} is missing (Keychain works only on macOS)",
+        'store it with `security add-generic-password`, or set source = "env" in the config')
 
 
 def env_secret(name):

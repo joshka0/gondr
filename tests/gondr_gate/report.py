@@ -84,7 +84,7 @@ def main(description):
                                     ("  :: " + "; ".join(res["failures"][:3])) if res["failures"] else ""))
     statuses = [r["status"] for r in results]
     status = ("HARNESS_ERROR" if "HARNESS_ERROR" in statuses else "RED" if "RED" in statuses else "GREEN")
-    missing = sorted({"F%02d" % i for i in range(1, 23)} - covered)
+    missing = sorted({"F%02d" % i for i in range(1, 31)} - covered)
     if missing and not args.only:
         status = "HARNESS_ERROR"
         print("HARNESS_ERROR: failure-list items without a case: " + ", ".join(missing))

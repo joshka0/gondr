@@ -20,7 +20,7 @@ try:
 except Exception:
     pass
 SEL = ("HOME", "INFISICAL_TOKEN", "AGENT_VAULT_ADDR", "AGENT_VAULT_TOKEN", "AGENT_VAULT_VAULT",
-       "AGENT_VAULT_TELEMETRY", "NO_PROXY", "no_proxy", "KEEP_ME")
+       "AGENT_VAULT_TELEMETRY", "NO_PROXY", "no_proxy", "KEEP_ME", "HTTPS_PROXY")
 entry = {"tool": name, "argv": argv, "cwd": os.getcwd(), "stdin": stdin,
          "env": {k: os.environ.get(k) for k in SEL}}
 with open(os.environ["GONDR_STUB_LOG"], "a") as f:
@@ -76,6 +76,17 @@ if name == "infisical":
 if name == "agent-vault":
     if argv[:1] == ["catalog"]:
         print(json.dumps(cfg.get("catalog", [])))
+        sys.exit(0)
+    if argv[:2] == ["vault", "discover"]:
+        d = cfg.get("discover", {})
+        if d.get("exit"):
+            sys.stderr.write("agent-vault: discover failed\n")
+            sys.exit(d["exit"])
+        if d.get("bad_json"):
+            print("this is { not json")
+            sys.exit(0)
+        print(json.dumps({"vault": os.environ.get("AGENT_VAULT_VAULT"), "services": d.get("services", []),
+                          "available_credentials": d.get("credentials", [])}))
         sys.exit(0)
     if argv[:1] == ["run"] and "--" in argv:
         tail = argv[argv.index("--") + 1:]

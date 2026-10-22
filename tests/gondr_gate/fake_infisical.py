@@ -21,6 +21,7 @@ class Fake:
         self.secrets = {}   # (env, path) -> [key names]
         self.imports = {}   # (env, path) -> [(src env, src path)]
         self.extra_dirs = set()  # (env, path)
+        self.missing = set()  # (env, folder): reads of this folder answer HTTP 404
         self.fail = []      # (method, path regex, status)
         self.leak = False
         outer = self
@@ -113,6 +114,10 @@ class Fake:
                     self.fail[self.fail.index(entry)] = entry[:3] + (entry[3] - 1,)
                 return status, POISON_BODY
         env, spath = q.get("environment"), q.get("secretPath", "/")
+        if method == "GET" and path in ("/api/v4/secrets", "/api/v2/folders"):
+            folder = spath if path == "/api/v4/secrets" else q.get("path", "/")
+            if (env, folder) in self.missing:
+                return 404, POISON_BODY
         if path == "/api/v1/auth/universal-auth/login" and method == "POST":
             return 200, {"accessToken": TOKEN, "expiresIn": 7200, "accessTokenMaxTTL": 7200,
                          "tokenType": "Bearer"}
