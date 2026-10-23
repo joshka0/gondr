@@ -38,7 +38,7 @@ def cmd_status(cfg, scope, args):
     print(f"boundary: {here.name if here else '-'}")
     print(f"infisical: {env}:{folder} (project {client.project})")
     if listed is None:
-        print("  folder does not exist: ask the operator to create it, or to map this repo in [folders]")
+        print("  folder does not exist: `gondr set` or `gondr need` creates it")
     else:
         print(f"  keys ({len(own)}): {' '.join(own) or '-'}")
         for src, keys in imports:

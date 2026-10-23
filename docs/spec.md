@@ -128,6 +128,9 @@ A boundary keeps one set of secrets with one set of directories.
   `imported <env>:<owner> into <env>:<path>`.
 - No owner, or more than one owner without `--from`: exit 1.
 - `--from F` passes the boundary check like a path.
+- The target path passes the `set` path rules before login.
+- A target folder that does not exist (HTTP 404 on its list) holds no keys. `need` creates it as in
+  "Missing folders" after it finds exactly one owner, and before the import. With no owner, it creates nothing.
 
 ### `gondr set <KEY> [--path P] [--env E]`
 
@@ -139,6 +142,18 @@ A boundary keeps one set of secrets with one set of directories.
 - `GET /api/v4/secrets/<KEY>` with `viewSecretValue=false`: 200 → `PATCH`, 404 → `POST` with
   `secretComment`. Both send `{projectId, environment, secretPath, secretValue, skipMultilineEncoding: true, type: "shared"}`.
 - Prints `created <KEY> in <env>:<path>` or `updated <KEY> in <env>:<path>`. Never the value.
+- Before the secret write, one `GET /api/v4/secrets` list of the folder (as in `ls`). On HTTP 404,
+  `set` creates the folder as in "Missing folders", then writes the secret.
+
+### Missing folders (used by `set` and `need`)
+
+- Each path segment must match `^[A-Za-z0-9_-]+$` (Infisical's folder name rule). Else exit 1 before
+  login, with a hint to map the repo in `[folders]` or pass `--path`.
+- `gondr` walks the path from `/`. For each segment it lists the parent with `GET /api/v2/folders`
+  (`projectId`, `environment`, `path`). If the segment is missing, it sends `POST /api/v2/folders` with
+  body `{projectId, environment, name, path: <parent>}`. Below a created folder it sends no more lists.
+- It never creates a folder that already exists, and never a folder outside the target path.
+- Prints one `created folder <env>:<path>` line per created folder, parents first.
 
 ### `gondr run [--env E] [--path P] -- <cmd...>`
 
@@ -288,4 +303,7 @@ A boundary keeps one set of secrets with one set of directories.
 - F29 `find` walks imports (one request per folder).
 - F31 `[folders]` is ignored, or a shorter match wins over a longer one.
 - F32 `status`, `find` or `check` stops on a missing repo folder (HTTP 404 on its list).
+- F33 `set` or `need` stops on a missing target folder, creates an existing folder again, skips a
+  missing parent, creates a folder outside the target path, or creates a folder when `need` finds no
+  owner or a path rule fails.
 - F30 `check` reads a value from the example file, exits 0 with a gap, or misreads `export NAME=` lines.

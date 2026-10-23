@@ -39,6 +39,7 @@ You also need the [`infisical` CLI](https://infisical.com/docs/cli/overview) for
 
 A linked Git worktree maps to the folder of its main checkout. A `[folders]` entry in the config
 maps a repo whose folder does not follow its path. A repo with `.infisical.json` uses its `workspaceId` as the project.
+`gondr set` and `gondr need` create the repo folder and its missing parents, so a new repo needs no setup.
 
 ## Commands
 

@@ -4,8 +4,8 @@ Infisical (secret store):
   gondr run [--env E] [--path P] -- <cmd...>   run <cmd> with the folder's secrets and imports
   gondr ls [--env E] [path]                     key names, imports, subfolders
   gondr where <KEY> [--env E]                   folders that define KEY, and who imports them
-  gondr need <KEY> [--env E] [--path P] [--from F]  import KEY's shared owner folder into this repo folder
-  gondr set <KEY> [--env E] [--path P]          publish a value read from stdin
+  gondr need <KEY> [--env E] [--path P] [--from F]  import KEY's shared owner folder; creates a missing folder
+  gondr set <KEY> [--env E] [--path P]          publish a value read from stdin; creates a missing folder
 
 Discovery for agents (read only):
   gondr status [--env E] [--json]               this repo's folder, keys, imports and vault

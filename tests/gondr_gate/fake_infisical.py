@@ -22,6 +22,7 @@ class Fake:
         self.imports = {}   # (env, path) -> [(src env, src path)]
         self.extra_dirs = set()  # (env, path)
         self.missing = set()  # (env, folder): reads of this folder answer HTTP 404
+        self.strict = False  # True: a folder that no seed or POST created answers HTTP 404 on every request
         self.fail = []      # (method, path regex, status)
         self.leak = False
         outer = self
@@ -117,6 +118,11 @@ class Fake:
         if method == "GET" and path in ("/api/v4/secrets", "/api/v2/folders"):
             folder = spath if path == "/api/v4/secrets" else q.get("path", "/")
             if (env, folder) in self.missing:
+                return 404, POISON_BODY
+        if self.strict and path != "/api/v1/auth/universal-auth/login":
+            where = (body or {}).get("secretPath") or (body or {}).get("path") if method != "GET" else None
+            where = where or (spath if path.startswith("/api/v4/secrets") else q.get("path", "/"))
+            if where.rstrip("/") and where.rstrip("/") not in self._all_paths(env or (body or {}).get("environment")):
                 return 404, POISON_BODY
         if path == "/api/v1/auth/universal-auth/login" and method == "POST":
             return 200, {"accessToken": TOKEN, "expiresIn": 7200, "accessTokenMaxTTL": 7200,

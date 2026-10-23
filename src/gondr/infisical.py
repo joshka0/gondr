@@ -15,6 +15,8 @@ from gondr.common import die, env_secret, keychain, parse
 # Infisical Cloud's Cloudflare rejects the default urllib agent (error 1010).
 UA = f"gondr/{__version__}"
 KEY = re.compile(r"^[A-Z][A-Z0-9_]*$")
+# Infisical accepts only these characters in a folder name.
+FOLDER = re.compile(r"^[A-Za-z0-9_-]+$")
 RETRIES = 5
 
 # Inside `agent-vault run`, SSL_CERT_FILE names only the broker CA, and Infisical bypasses the
@@ -98,6 +100,20 @@ class Client:
         _, data = self.call("GET", "/api/v2/folders", {"projectId": self.project, "environment": env, "path": path})
         return sorted(f["name"] for f in data.get("folders", []))
 
+    def make_folder(self, env, path):
+        """Create the folder and each missing parent. Returns the paths it created."""
+        made, parent, missing = [], "/", False
+        for name in path.strip("/").split("/"):
+            # Below a folder this call created, every folder is missing: skip the lookup.
+            missing = missing or name not in self.subfolders(env, parent)
+            if missing:
+                self.call("POST", "/api/v2/folders",
+                          body={"projectId": self.project, "environment": env, "name": name, "path": parent})
+            parent = parent.rstrip("/") + "/" + name
+            if missing:
+                made.append(parent)
+        return made
+
     def all_secret_paths(self, env):
         _, data = self.call("GET", "/api/v4/secrets", {
             "projectId": self.project, "environment": env, "secretPath": "/", "recursive": "true",
@@ -147,6 +163,16 @@ def check_publish_path(cfg, scope, path):
         die(f"{path} is outside " + ", ".join(r + "/" for r in roots))
     if any(seg in ("", ".", "..") for seg in path.split("/")[1:]):
         die(f"{path} has an empty, '.' or '..' segment")
+    bad = [seg for seg in path.split("/")[1:] if not FOLDER.match(seg)]
+    if bad:
+        die(f"Infisical folder names allow only letters, digits, '-' and '_', not {bad[0]}",
+            "map this repo to a valid folder in the [folders] config table, or pass --path")
+
+
+def ensure_folder(client, env, path):
+    """Create a missing target folder, so a new repo needs no manual setup."""
+    for made in client.make_folder(env, path):
+        print(f"created folder {env}:{made}")
 
 
 def cmd_run(cfg, scope, args):
@@ -208,8 +234,10 @@ def cmd_need(cfg, scope, args):
     path = scope.folder(opts.get("path"))
     if "from" in opts:
         scope.guard(scope.absolute(opts["from"]))
+    check_publish_path(cfg, scope, path)
     client = Client(cfg, scope.project()).login()
-    own, imports = client.list_folder(env, path)
+    listed = client.list_folder_if_exists(env, path)
+    own, imports = listed or ([], [])
     if key in own or any(key in keys for _, keys in imports):
         print(f"{key} already reaches {env}:{path}")
         return
@@ -224,6 +252,8 @@ def cmd_need(cfg, scope, args):
         die(f"no shared owner folder holds {key}", f"`gondr where {key}`; a repo-owned key is not shared by import")
     if len(owners) > 1:
         die(f"{key} is in several shared folders: {' '.join(owners)}", f"gondr need {key} --from <folder>")
+    if listed is None:
+        ensure_folder(client, env, path)
     client.call("POST", "/api/v2/secret-imports",
                 body={"projectId": client.project, "environment": env, "path": path,
                       "import": {"environment": env, "path": owners[0]}})
@@ -249,4 +279,6 @@ def cmd_set(cfg, scope, args):
     if not value:
         die("the value is empty")
     client = Client(cfg, scope.project()).login()
+    if client.list_folder_if_exists(env, path) is None:
+        ensure_folder(client, env, path)
     print(f"{client.publish(env, path, key, value)} {key} in {env}:{path}")
