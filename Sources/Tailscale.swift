@@ -2,8 +2,9 @@ import Foundation
 
 /// Tailscale auth keys, minted with a parent OAuth client kept in Keychain
 /// item `gondr-token.tailscale` / `<tailnet>` as
-/// `<client id>:<client secret>`. The client needs the `auth_keys` scope and
-/// owns the tags that keys may carry.
+/// `<client id>:<client secret>`. `mint` and `revoke` need the `auth_keys`
+/// scope, and the client owns the tags that keys may carry. `exec` can ask
+/// only for scopes the client holds.
 enum Tailscale {
     private static let apiBase = URL(string: "https://api.tailscale.com/api/v2")!
     private static let keyOptions: Set<String> = ["ephemeral", "reusable", "preauthorized"]
@@ -53,8 +54,10 @@ enum Tailscale {
     }
 
     /// Trades the parent OAuth client for a 1-hour API token limited to
-    /// `auth_keys` and the given tags.
-    private static func accessToken(_ tailnet: String, tags: [String]) async throws -> String {
+    /// the given scopes and tags.
+    private static func accessToken(
+        _ tailnet: String, scopes: [String] = ["auth_keys"], tags: [String]
+    ) async throws -> String {
         var data = try parent(tailnet).read()
         defer { data.resetBytes(in: 0..<data.count) }
         let stored = String(decoding: data, as: UTF8.self)
@@ -66,7 +69,7 @@ enum Tailscale {
             URLQueryItem(name: "grant_type", value: "client_credentials"),
             URLQueryItem(name: "client_id", value: String(stored[..<colon])),
             URLQueryItem(name: "client_secret", value: String(stored[stored.index(after: colon)...])),
-            URLQueryItem(name: "scope", value: "auth_keys"),
+            URLQueryItem(name: "scope", value: scopes.joined(separator: " ")),
         ] + (tags.isEmpty ? [] : [URLQueryItem(name: "tags", value: tags.joined(separator: " "))])
         var request = URLRequest(url: apiBase.appending(path: "oauth/token"))
         request.httpMethod = "POST"
@@ -203,6 +206,34 @@ enum Tailscale {
         let _: Ignored? = try await api("tailnet/-/keys/\(found[0].id)", method: "DELETE", token: token)
         print("revoke=complete")
         print("parent_exposed=false")
+    }
+
+    /// `--tailnet <label> --scope <scope> [--scope ...] -- <command>`. Puts a
+    /// 1-hour API token limited to the scopes in `TAILSCALE_API_KEY` and
+    /// replaces this process with the command. The token expires by itself;
+    /// the parent never reaches the command.
+    static func exec(_ arguments: [String]) async throws {
+        guard let separator = arguments.firstIndex(of: "--"), separator + 1 < arguments.count else {
+            throw FactoryError.message("Usage: exec tailscale --tailnet <label> --scope <scope> [--scope ...] -- <command>")
+        }
+        let options = try Options(Array(arguments[..<separator]), allowed: ["--tailnet"], repeatable: ["--scope"])
+        let tailnet = try validTailnet(try options.required("--tailnet"))
+        let scopes = options.all("--scope")
+        guard !scopes.isEmpty, scopes.allSatisfy({ matches($0, "^[a-z_]{1,32}(:[a-z_]{1,32}){0,2}$") }) else {
+            throw FactoryError.message("Give at least one --scope, for example policy_file or devices:core:read")
+        }
+        let command = Array(arguments[(separator + 1)...])
+        let shown = command.joined(separator: " ")
+
+        print("Command request")
+        print("  Credential: Tailscale \(tailnet) API token as TAILSCALE_API_KEY (1 hour)")
+        print("  Scopes: \(scopes.joined(separator: ", "))")
+        print("  Command: \(shown)")
+        try await requireUserApproval(
+            action: "run with a Tailscale token for \(tailnet) (\(scopes.joined(separator: ", "))): \(shown.count > 160 ? String(shown.prefix(160)) + "…" : shown)"
+        )
+        let token = try await accessToken(tailnet, scopes: scopes, tags: [])
+        try execWithEnvironment(["TAILSCALE_API_KEY": token], command: command)
     }
 
     private static func api<T: Decodable>(

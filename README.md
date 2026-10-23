@@ -10,7 +10,7 @@ Keychain. The binary never prints them.
 | PlanetScale | Mint a child service token into Infisical, or run one approved command with a child that is deleted when the command exits | `gondr-token.planetscale` / `<org>` |
 | Hetzner Cloud | Run one approved command with `HCLOUD_TOKEN` set | `gondr-token.hetzner` / `<project>` |
 | Fly.io | Mint an app-scoped child into Infisical, or run one approved command with `FLY_API_TOKEN` (org token) | `gondr-token.fly` / `<org>` |
-| Tailscale | Mint a tagged auth key into Infisical | `gondr-token.tailscale` / `<tailnet>` |
+| Tailscale | Mint a tagged auth key into Infisical, or run one approved command with a 1-hour API token (`TAILSCALE_API_KEY`) limited to named scopes | `gondr-token.tailscale` / `<tailnet>` |
 | OpenRouter | Mint an API key with a credit limit into Infisical | `gondr-token.openrouter` / `<account>` |
 | GitLab.com | Mint a project deploy token into Infisical, or run one approved command with `GITLAB_TOKEN` (the PAT) | `gondr-token.gitlab` / `<account>` |
 | GitHub | Run one approved command with a 1-hour installation token (`GH_TOKEN`) limited to named repos and permissions | `gondr-token.github` / `<app>` |
@@ -58,7 +58,9 @@ infra-token-factory import github --app <label> --app-id <id> --key-file <path.p
   the repositories they may touch. Import reads the downloaded PKCS#1 `.pem`
   once; delete the file afterwards.
 - Tailscale: an OAuth client with the `auth_keys` scope that owns the tags keys
-  may carry. Import asks for the client ID, then the `tskey-client-` secret.
+  may carry, plus the scopes `exec tailscale` may ask for (for example
+  `policy_file` and `devices:core`). Import asks for the client ID, then the
+  `tskey-client-` secret.
 
 ## Approval prompt
 
@@ -175,10 +177,17 @@ infra-token-factory exec fly --org <org> -- <command> [args...]
 infra-token-factory exec gitlab --account <label> -- <command> [args...]
 infra-token-factory exec github --app <label> --owner <login> --repo <name> \
   --permission contents:write [--permission ...] -- <command> [args...]
+infra-token-factory exec tailscale --tailnet <label> --scope <scope> [--scope ...] \
+  -- <command> [args...]
 ```
 
 The command gets the parent in `HCLOUD_TOKEN` or `FLY_API_TOKEN`. It can read
 it. Approve only commands you trust.
+
+`exec tailscale` gives the command a 1-hour API token in `TAILSCALE_API_KEY`,
+not the parent. The token holds only the `--scope` values, and Tailscale
+refuses scopes the OAuth client does not hold. Use `-` as the tailnet in API
+paths, for example `/api/v2/tailnet/-/acl`.
 
 ## Check a parent credential
 
