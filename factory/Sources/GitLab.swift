@@ -97,7 +97,7 @@ enum GitLab {
         let options = try Options(
             arguments,
             allowed: ["--account", "--project", "--name", "--expires-in",
-                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret-prefix"],
+                      "--env", "--path", "--secret-prefix"],
             repeatable: ["--scope"]
         )
         let account = try validAccount(try options.required("--account"))
@@ -107,8 +107,8 @@ enum GitLab {
         guard let expiresIn = try parseExpiry(try options.required("--expires-in")) else {
             throw FactoryError.message("Deploy tokens need a finite --expires-in")
         }
-        let destination = try InfisicalDestination(options)
-        let prefix = try options.required("--infisical-secret-prefix")
+        let destination = try SecretDestination(options)
+        let prefix = try options.required("--secret-prefix")
         let userSecret = "\(prefix)_USERNAME"
         let tokenSecret = "\(prefix)_TOKEN"
         guard matches(name, "^[A-Za-z0-9 _.-]{1,100}$"), isSecretName(userSecret) else {
@@ -158,7 +158,7 @@ enum GitLab {
 
         print("mint=complete")
         print("token_verified=true")
-        print("infisical_secrets=\(userSecret),\(tokenSecret)")
+        print("secrets=\(userSecret),\(tokenSecret)")
         print("parent_exposed=false")
     }
 

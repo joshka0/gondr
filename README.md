@@ -18,7 +18,8 @@ uv tool install "git+https://github.com/joshka0/gondr-secrets#subdirectory=gondr
 ```
 
 You also need the [`infisical` CLI](https://infisical.com/docs/cli/overview) for `gondr run`, and the
-`agent-vault` binary for `gondr agent` and `gondr onboard`.
+`agent-vault` binary for `gondr agent` and `gondr onboard`. For `gondr token` (macOS), build the token
+factory with `factory/bin/install`; [`factory/README.md`](factory/README.md) lists its providers.
 
 ## Set up
 
@@ -58,6 +59,8 @@ maps a repo whose folder does not follow its path. A repo with `.infisical.json`
 | `gondr status` | This repo's folder, keys, imports, vault and hosts |
 | `gondr find <what>` | How to use a secret: proxied host, env var, import, or the operator command |
 | `gondr check` | Which names in `.env.example` reach this repo |
+| `gondr token mint <provider> --secret KEY ...` | Mint a scoped cloud credential into this repo's folder, after Touch ID (macOS) |
+| `gondr token exec\|revoke\|check\|import <provider> ...` | Run one command with a short-lived credential, revoke one, or manage parent credentials |
 
 `status`, `find` and `check` take `--json`. Give your agents the block in [`docs/agents.md`](docs/agents.md).
 To set up the same pattern without `gondr`, follow [`docs/cookbook.md`](docs/cookbook.md).

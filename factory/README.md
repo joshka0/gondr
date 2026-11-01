@@ -1,7 +1,7 @@
-# Infra token factory
+# gondr token factory
 
-`infra-token-factory` lets agents get scoped cloud credentials while you approve
-each request with Touch ID. Parent credentials stay in the macOS login
+`gondr token` lets agents get scoped cloud credentials while you approve
+each request with Touch ID. It runs the factory in this folder (Swift, macOS only). Parent credentials stay in the macOS login
 Keychain. The binary never prints them.
 
 | Provider | Mode | Keychain item (service / account) |
@@ -20,13 +20,13 @@ instead. The command can read the token. Approve only commands you trust.
 
 ## Install
 
-Run `bin/install`. It builds the binary into
-`~/.local/share/infra-token-factory/` and links it as
-`~/.local/bin/infra-token-factory`.
+Run `factory/bin/install`. It builds the binary as
+`~/.local/share/gondr/gondr-factory`, where `gondr token` looks for it.
+To install it elsewhere, set `[factory] binary` in the gondr config.
 
 `<prefix>` in the table above is the start of each Keychain service name. The
-default is `infra-token-factory`. To use another, for example a reverse-DNS
-name of your own, install with `KEYCHAIN_PREFIX=com.example.infra-token-factory bin/install`.
+default is `gondr-token`. To use another, for example a reverse-DNS
+name of your own, install with `KEYCHAIN_PREFIX=com.example.gondr-token factory/bin/install`.
 Use the same prefix on every install, or the binary cannot find your parent credentials.
 
 After each install, the first use of each Keychain item makes macOS ask for
@@ -39,20 +39,20 @@ Run these in your own terminal. Each asks for the secret with echo off, then
 for Touch ID.
 
 ```sh
-infra-token-factory import planetscale --org <org>
-infra-token-factory import hetzner --project <label>
-infra-token-factory import fly --org <org>
-infra-token-factory import tailscale --tailnet <label>
-infra-token-factory import openrouter --account <label>
-infra-token-factory import gitlab --account <label>
-infra-token-factory import github --app <label> --app-id <id> --key-file <path.pem>
+gondr token import planetscale --org <org>
+gondr token import hetzner --project <label>
+gondr token import fly --org <org>
+gondr token import tailscale --tailnet <label>
+gondr token import openrouter --account <label>
+gondr token import gitlab --account <label>
+gondr token import github --app <label> --app-id <id> --key-file <path.pem>
 ```
 
 - PlanetScale parent: a service token with `write_service_tokens`,
   `read_service_tokens`, `delete_service_tokens`, and every access a child may
   get. A child can only get accesses the parent holds.
 - Hetzner: a **Read & Write** API token for the project.
-- Fly: an org token, `fly tokens create org --name infra-token-factory --expiry 8760h`.
+- Fly: an org token, `fly tokens create org --name gondr-token --expiry 8760h`.
   `--org` is the org slug from `fly orgs list` (for a personal org, `personal`).
 - OpenRouter: a management key from https://openrouter.ai/settings/management-keys,
   with an expiry. It can manage every key in the account, so keep it here only.
@@ -87,45 +87,50 @@ first), so read them as claims. The agent process comes from the system.
 
 ## Mint
 
+`mint` stores each new credential in this repo's Infisical folder, the one `gondr status` shows.
+`--env` and `--path` change the destination as in `gondr set`. gondr checks the folder and the
+repo's boundary before the Touch ID prompt. The factory then stores each value with `gondr set`
+on stdin. If a store fails, the factory revokes the new credential.
+
 ```sh
-infra-token-factory mint cloudflare --name <token-name> --account-id <id> \
+gondr token mint cloudflare --name <token-name> --account-id <id> \
   --account-permission <name> [--account-permission ...] \
   [--zone <zone> --zone-id <id> | --zone '*'] [--zone-permission <name> ...] \
   [--r2-bucket <bucket> ... --bucket-permission <name> ... [--r2-jurisdiction default|eu|fedramp]] \
   --expires-in <N>h|<N>d|never [--allow-ip <cidr> ...] \
-  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
-  --infisical-secret CLOUDFLARE_<CAPABILITY>_API_TOKEN [--r2-s3-secret-prefix <PREFIX>]
+  [--env <env>] [--path <infisical folder>] \
+  --secret CLOUDFLARE_<CAPABILITY>_API_TOKEN [--r2-s3-secret-prefix <PREFIX>]
 
-infra-token-factory mint planetscale --org <org> --name <token-name> \
+gondr token mint planetscale --org <org> --name <token-name> \
   [--org-access <access> ...] [--database <db> --database-access <access> ...] \
   --expires-in <N>h|<N>d|never \
-  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
-  --infisical-secret-prefix PLANETSCALE_<CAPABILITY>
+  [--env <env>] [--path <infisical folder>] \
+  --secret-prefix PLANETSCALE_<CAPABILITY>
 
-infra-token-factory mint fly --org <org> --app <app> \
+gondr token mint fly --org <org> --app <app> \
   --expires-in <N>h|<N>d \
-  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
-  --infisical-secret FLY_<APP>_DEPLOY_TOKEN
+  [--env <env>] [--path <infisical folder>] \
+  --secret FLY_<APP>_DEPLOY_TOKEN
 
-infra-token-factory mint tailscale --tailnet <label> --name <key-name> \
+gondr token mint tailscale --tailnet <label> --name <key-name> \
   --tag tag:<name> [--tag ...] [--with ephemeral|reusable|preauthorized ...] \
   --expires-in <N>h|<N>d \
-  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
-  --infisical-secret TS_AUTHKEY_<CAPABILITY>
+  [--env <env>] [--path <infisical folder>] \
+  --secret TS_AUTHKEY_<CAPABILITY>
 
-infra-token-factory create openrouter-workspace --account <label> --slug <slug> --name <name> \
+gondr token create openrouter-workspace --account <label> --slug <slug> --name <name> \
   [--monthly-budget-usd <N>]
 
-infra-token-factory mint openrouter --account <label> --workspace <slug> --name <key-name> \
+gondr token mint openrouter --account <label> --workspace <slug> --name <key-name> \
   --limit-usd <amount> --reset daily|weekly|monthly|never --expires-in <N>d \
-  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
-  --infisical-secret OPENROUTER_<APP>_API_KEY
+  [--env <env>] [--path <infisical folder>] \
+  --secret OPENROUTER_<APP>_API_KEY
 
-infra-token-factory mint gitlab-deploy --account <label> --project <group/project> \
+gondr token mint gitlab-deploy --account <label> --project <group/project> \
   --name <token-name> --scope read_repository|read_registry|write_registry|... \
   --expires-in <N>d \
-  --infisical-project <id> --infisical-env <env> --infisical-path <path> \
-  --infisical-secret-prefix GITLAB_<PURPOSE>_DEPLOY
+  [--env <env>] [--path <infisical folder>] \
+  --secret-prefix GITLAB_<PURPOSE>_DEPLOY
 ```
 
 - `--expires-in` is required. Use `never` only for a token that must outlive a
@@ -153,13 +158,13 @@ infra-token-factory mint gitlab-deploy --account <label> --project <group/projec
 ## Revoke
 
 ```sh
-infra-token-factory revoke cloudflare --name <token-name> --account-id <id>
-infra-token-factory revoke planetscale --org <org> --name <token-name>
-infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
-infra-token-factory revoke openrouter --account <label> (--name <key-name> | --hash <h> ...)
-infra-token-factory list openrouter --account <label>
-infra-token-factory revoke openrouter-workspace --account <label> --slug <slug>   # empty workspaces only
-infra-token-factory revoke gitlab-deploy --account <label> --project <group/project> --name <token-name>
+gondr token revoke cloudflare --name <token-name> --account-id <id>
+gondr token revoke planetscale --org <org> --name <token-name>
+gondr token revoke tailscale --tailnet <label> --name <key-name>
+gondr token revoke openrouter --account <label> (--name <key-name> | --hash <h> ...)
+gondr token list openrouter --account <label>
+gondr token revoke openrouter-workspace --account <label> --slug <slug>   # empty workspaces only
+gondr token revoke gitlab-deploy --account <label> --project <group/project> --name <token-name>
 ```
 
 `exec planetscale` mints a child with the accesses, sets
@@ -175,14 +180,14 @@ several tokens have that name. It does not delete the Infisical secrets.
 ## Run a command with a parent
 
 ```sh
-infra-token-factory exec hetzner --project <label> -- <command> [args...]
-infra-token-factory exec planetscale --org <org> [--org-access <a> ...] \
+gondr token exec hetzner --project <label> -- <command> [args...]
+gondr token exec planetscale --org <org> [--org-access <a> ...] \
   [--database <db> --database-access <a> ...] --expires-in <N>h -- <command>
-infra-token-factory exec fly --org <org> -- <command> [args...]
-infra-token-factory exec gitlab --account <label> -- <command> [args...]
-infra-token-factory exec github --app <label> --owner <login> --repo <name> \
+gondr token exec fly --org <org> -- <command> [args...]
+gondr token exec gitlab --account <label> -- <command> [args...]
+gondr token exec github --app <label> --owner <login> --repo <name> \
   --permission contents:write [--permission ...] -- <command> [args...]
-infra-token-factory exec tailscale --tailnet <label> --scope <scope> [--scope ...] \
+gondr token exec tailscale --tailnet <label> --scope <scope> [--scope ...] \
   -- <command> [args...]
 ```
 
@@ -197,14 +202,14 @@ paths, for example `/api/v2/tailnet/-/acl`.
 ## Check a parent credential
 
 ```sh
-infra-token-factory check cloudflare
-infra-token-factory check planetscale --org <org>
-infra-token-factory check hetzner --project <label>
-infra-token-factory check fly --org <org>
-infra-token-factory check tailscale --tailnet <label>
-infra-token-factory check openrouter --account <label>
-infra-token-factory check gitlab --account <label>
-infra-token-factory check github --app <label>
+gondr token check cloudflare
+gondr token check planetscale --org <org>
+gondr token check hetzner --project <label>
+gondr token check fly --org <org>
+gondr token check tailscale --tailnet <label>
+gondr token check openrouter --account <label>
+gondr token check gitlab --account <label>
+gondr token check github --app <label>
 ```
 
 Each reports presence only.

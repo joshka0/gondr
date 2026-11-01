@@ -114,7 +114,7 @@ enum Tailscale {
         let options = try Options(
             arguments,
             allowed: ["--tailnet", "--name", "--expires-in",
-                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret"],
+                      "--env", "--path", "--secret"],
             repeatable: ["--tag", "--with"]
         )
         let tailnet = try validTailnet(try options.required("--tailnet"))
@@ -124,8 +124,8 @@ enum Tailscale {
         guard let expiresIn = try parseExpiry(try options.required("--expires-in")), expiresIn <= 90 * 86400 else {
             throw FactoryError.message("Tailscale auth keys need --expires-in of 90d or less")
         }
-        let destination = try InfisicalDestination(options)
-        let secret = try options.required("--infisical-secret")
+        let destination = try SecretDestination(options)
+        let secret = try options.required("--secret")
         guard matches(name, "^[A-Za-z0-9 -]{1,50}$"), isSecretName(secret) else {
             throw FactoryError.message("--name takes up to 50 letters, digits, hyphens, or spaces")
         }
@@ -175,7 +175,7 @@ enum Tailscale {
 
         print("mint=complete")
         print("key_verified=true")
-        print("infisical_secret=\(secret)")
+        print("secret=\(secret)")
         print("parent_exposed=false")
     }
 

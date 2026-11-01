@@ -48,7 +48,7 @@ enum Cloudflare {
         let options = try Options(
             arguments,
             allowed: ["--name", "--zone", "--account-id", "--zone-id", "--expires-in", "--r2-jurisdiction",
-                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret",
+                      "--env", "--path", "--secret",
                       "--r2-s3-secret-prefix"],
             repeatable: ["--account-permission", "--zone-permission", "--allow-ip", "--r2-bucket", "--bucket-permission"]
         )
@@ -64,8 +64,8 @@ enum Cloudflare {
         let jurisdiction = options.optional("--r2-jurisdiction") ?? "default"
         let s3Prefix = options.optional("--r2-s3-secret-prefix")
         let expiresIn = try parseExpiry(try options.required("--expires-in"))
-        let destination = try InfisicalDestination(options)
-        let secret = try options.required("--infisical-secret")
+        let destination = try SecretDestination(options)
+        let secret = try options.required("--secret")
 
         // Zone identity and zone permissions travel together: an account-only
         // mint carries neither, a zone mint carries all three. `--zone '*'`
@@ -194,7 +194,7 @@ enum Cloudflare {
 
         print("mint=complete")
         print("derived_token_verified=true")
-        print("infisical_secret=\(secret)")
+        print("secret=\(secret)")
         print("parent_exposed=false")
     }
 

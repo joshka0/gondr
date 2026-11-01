@@ -226,7 +226,7 @@ enum OpenRouter {
         let options = try Options(
             arguments,
             allowed: ["--account", "--workspace", "--name", "--limit-usd", "--reset", "--expires-in",
-                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret"]
+                      "--env", "--path", "--secret"]
         )
         let account = try validAccount(try options.required("--account"))
         let workspaceSlug = try options.required("--workspace")
@@ -243,8 +243,8 @@ enum OpenRouter {
         guard expiresIn != nil || reset != "never" else {
             throw FactoryError.message("A key with --expires-in never needs --reset daily, weekly, or monthly")
         }
-        let destination = try InfisicalDestination(options)
-        let secret = try options.required("--infisical-secret")
+        let destination = try SecretDestination(options)
+        let secret = try options.required("--secret")
         guard name.count <= 120, isSecretName(secret) else {
             throw FactoryError.message("One or more arguments have an invalid shape")
         }
@@ -287,7 +287,7 @@ enum OpenRouter {
 
         print("mint=complete")
         print("key_verified=true")
-        print("infisical_secret=\(secret)")
+        print("secret=\(secret)")
         print("parent_exposed=false")
     }
 

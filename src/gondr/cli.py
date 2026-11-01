@@ -16,16 +16,21 @@ Infisical Agent Vault (credential proxy):
   gondr agent [--vault V] <cmd...>              run an agent through the repo's vault
   gondr onboard <folder> --admin-home DIR [--repo-dir DIR] [--vault NAME] [--services a,b] [--dry-run]
 
+Token factory (macOS, Touch ID; build with factory/bin/install):
+  gondr token mint <provider> --secret KEY [--env E] [--path P] ...  mint a scoped child into this repo's folder
+  gondr token exec|revoke|check|import|list|create <provider> ...   run the factory; `check cloudflare` prints usage
+
 gondr prints key names, never values. Config: $GONDR_CONFIG or ~/.config/gondr/config.toml.
 """
 import sys
 
-from gondr import __version__, config, guide, infisical, vault
+from gondr import __version__, config, guide, infisical, token, vault
 
 COMMANDS = {"run": infisical.cmd_run, "ls": infisical.cmd_ls, "where": infisical.cmd_where,
             "need": infisical.cmd_need, "set": infisical.cmd_set,
             "agent": vault.cmd_agent, "onboard": vault.cmd_onboard,
-            "status": guide.cmd_status, "find": guide.cmd_find, "check": guide.cmd_check}
+            "status": guide.cmd_status, "find": guide.cmd_find, "check": guide.cmd_check,
+            "token": token.cmd_token}
 
 
 def main():

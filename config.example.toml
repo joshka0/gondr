@@ -29,6 +29,10 @@ references_folder = "agent-vault"
 token = { source = "keychain", account = "my-agent", service = "agent-vault-token" }
 # token = { source = "env", name = "AGENT_VAULT_TOKEN" }
 
+# Token factory for `gondr token` (macOS). This is the default path of factory/bin/install.
+# [factory]
+# binary = "~/.local/share/gondr/gondr-factory"
+
 # A client's repos keep their own secrets and vaults.
 # [[boundary]]
 # name = "Acme"

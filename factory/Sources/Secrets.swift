@@ -67,48 +67,43 @@ func readSecretFromTerminal(prompt: String) throws -> Data {
     return Data(buffer[0..<length].map { UInt8(bitPattern: $0) })
 }
 
-struct InfisicalDestination {
-    let project: String
+/// Where a minted secret goes: the Infisical folder that `gondr token mint` resolved and checked
+/// against the repo's boundary. The factory stores each value with `gondr set`, which reads it from stdin.
+struct SecretDestination {
     let environment: String
     let path: String
+    let gondr: String
 
     init(_ options: Options) throws {
-        project = try options.required("--infisical-project")
-        environment = try options.required("--infisical-env")
-        path = try options.required("--infisical-path")
-        guard matches(project, "^[0-9a-f-]{36}$"),
-              matches(environment, "^[A-Za-z0-9_-]+$"),
-              path.hasPrefix("/"), !path.contains("..") else {
+        environment = try options.required("--env")
+        path = try options.required("--path")
+        guard let gondr = ProcessInfo.processInfo.environment["GONDR_BIN"], gondr.hasPrefix("/") else {
+            throw FactoryError.message("mint stores secrets through gondr: run it as `gondr token mint ...`")
+        }
+        self.gondr = gondr
+        guard matches(environment, "^[A-Za-z0-9_-]+$"), path.hasPrefix("/"), !path.contains("..") else {
             throw FactoryError.message("Infisical destination has an invalid shape")
         }
     }
 
     func label(_ secret: String) -> String {
-        "Infisical \(path == "/" ? "" : path)/\(secret)"
+        "Infisical \(environment):\(path)/\(secret)"
     }
 
-    /// Writes the value through stdin, so it never appears in argv.
+    /// Writes the value through stdin, so it never appears in argv. gondr prints names only.
     func store(_ value: String, as secret: String) throws {
         let process = Process()
         let input = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/infisical")
-        process.arguments = [
-            "secrets", "set", "\(secret)=@/dev/stdin",
-            "--projectId", project,
-            "--env", environment,
-            "--path", path,
-            "--type", "shared",
-            "--silent",
-        ]
+        process.executableURL = URL(fileURLWithPath: gondr)
+        process.arguments = ["set", secret, "--env", environment, "--path", path]
         process.standardInput = input
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
         try process.run()
         input.fileHandleForWriting.write(Data(value.utf8))
         try input.fileHandleForWriting.close()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw FactoryError.message("Infisical CLI exited \(process.terminationStatus)")
+            throw FactoryError.message("gondr set \(secret) exited \(process.terminationStatus)")
         }
     }
 }

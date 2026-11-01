@@ -241,6 +241,23 @@ A boundary keeps one set of secrets with one set of directories.
   and `HOME` set to a gondr state folder for the broker CLI. The child gets the real `HOME` back.
 - The agent token never appears in argv or output.
 
+### `gondr token <verb> <provider> [options]`
+
+- Verbs: `mint`, `revoke`, `exec`, `check`, `import`, `list`, `create`. Any other verb, or fewer than two
+  arguments, prints the usage and exits 1, with no exec.
+- The factory is `factory.binary` (default `~/.local/share/gondr/gondr-factory`). If it is not an
+  executable file: exit 1 with a hint to run `factory/bin/install`. No login and no exec.
+- Every verb execs `<binary> <verb> <provider> <options...>` with the inherited environment plus
+  `GONDR_BIN`, the absolute path of the running gondr launcher (resolved `argv[0]`). If `argv[0]` is
+  `__main__.py` or not executable: exit 1 before any exec.
+- `mint`: gondr takes `--env` and `--path` out of the options. It checks the env as in `set`, resolves
+  the folder as in `set` (boundary guard and publish path rules), then execs
+  `<binary> mint <provider> <other options...> --env <E> --path <P>`. A `--` in the options exits 1.
+  A failed check exits 1 before the exec, so no Touch ID prompt appears.
+- gondr does no Infisical login and sends no HTTP request for any verb.
+- The factory stores each minted value by running `$GONDR_BIN set <KEY> --env <E> --path <P>` with the
+  value on stdin. A nonzero exit makes it revoke the new credential and exit 1.
+
 ### `gondr onboard <folder> --admin-home DIR [--repo-dir DIR] [--vault NAME] [--services a,b] [--dry-run]`
 
 - Default vault name: the folder below `layout.prefix`, with `/` replaced by `-`, plus `-<default_environment>`.
@@ -306,4 +323,10 @@ A boundary keeps one set of secrets with one set of directories.
 - F33 `set` or `need` stops on a missing target folder, creates an existing folder again, skips a
   missing parent, creates a folder outside the target path, or creates a folder when `need` finds no
   owner or a path rule fails.
+- F34 `token` execs the factory for an unknown verb, or when the binary is missing.
+- F35 `token mint` passes the user's `--env`/`--path` through unchecked, execs before the boundary,
+  env and path checks, or sends a destination other than the one `set` would use.
+- F36 `token` changes the options of a non-`mint` verb, adds `--env`/`--path` to them, or drops
+  `GONDR_BIN` from the factory's environment.
+- F37 `token` logs in to Infisical or sends an HTTP request.
 - F30 `check` reads a value from the example file, exits 0 with a gap, or misreads `export NAME=` lines.

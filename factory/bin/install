@@ -1,17 +1,16 @@
 #!/bin/sh
-# Build and install infra-token-factory. After a rebuild, macOS asks once per
-# Keychain item for your login password: click Always Allow.
+# Build the gondr token factory (macOS). `gondr token` runs it from the path below.
+# After a rebuild, macOS asks once per Keychain item for your login password: click Always Allow.
 set -eu
 cd "$(dirname "$0")/.."
-dest="$HOME/.local/share/infra-token-factory"
-prefix="${KEYCHAIN_PREFIX:-infra-token-factory}"
+dest="$HOME/.local/share/gondr"
+prefix="${KEYCHAIN_PREFIX:-gondr-token}"
 case "$prefix" in
   *[!A-Za-z0-9._-]* | "") echo "KEYCHAIN_PREFIX may hold only letters, digits, '.', '_' and '-'" >&2; exit 1 ;;
 esac
-mkdir -p build "$dest" "$HOME/.local/bin"
+mkdir -p build "$dest"
 printf '/// Start of every Keychain service name. bin/install writes this file.\nlet keychainPrefix = "%s"\n' "$prefix" > build/KeychainPrefix.swift
-xcrun swiftc -O -parse-as-library Sources/*.swift build/KeychainPrefix.swift -o build/infra-token-factory
-install -m 711 build/infra-token-factory "$dest/infra-token-factory"
-ln -sf "$dest/infra-token-factory" "$HOME/.local/bin/infra-token-factory"
+xcrun swiftc -O -parse-as-library Sources/*.swift build/KeychainPrefix.swift -o build/gondr-factory
+install -m 711 build/gondr-factory "$dest/gondr-factory"
 rm -rf build
-echo "installed=$dest/infra-token-factory keychain_prefix=$prefix"
+echo "installed=$dest/gondr-factory keychain_prefix=$prefix"

@@ -175,15 +175,15 @@ enum PlanetScale {
         let options = try Options(
             arguments,
             allowed: ["--org", "--name", "--expires-in", "--database",
-                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret-prefix"],
+                      "--env", "--path", "--secret-prefix"],
             repeatable: ["--org-access", "--database-access"]
         )
         let org = try validOrg(try options.required("--org"))
         let name = try options.required("--name")
         let expiresIn = try parseExpiry(try options.required("--expires-in"))
         let grant = try Grant(options)
-        let destination = try InfisicalDestination(options)
-        let prefix = try options.required("--infisical-secret-prefix")
+        let destination = try SecretDestination(options)
+        let prefix = try options.required("--secret-prefix")
         let idSecret = "\(prefix)_SERVICE_TOKEN_ID"
         let tokenSecret = "\(prefix)_SERVICE_TOKEN"
         guard name.count <= 120, isSecretName(idSecret) else {
@@ -214,7 +214,7 @@ enum PlanetScale {
 
         print("mint=complete")
         print("grants_verified=true")
-        print("infisical_secrets=\(idSecret),\(tokenSecret)")
+        print("secrets=\(idSecret),\(tokenSecret)")
         print("parent_exposed=false")
     }
 

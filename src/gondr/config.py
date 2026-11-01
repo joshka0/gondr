@@ -53,6 +53,7 @@ class Config:
     services: dict
     boundaries: list
     folders: dict
+    factory: dict
 
 
 def load():
@@ -89,6 +90,8 @@ def load():
                              allow_vaults=b.get("allow_vaults", []), deny_agents=b.get("deny_agents", []))
                     for b in raw.get("boundary", [])],
         folders={expand(d): "/" + f.strip("/") for d, f in (raw.get("folders") or {}).items()},
+        factory={"binary": os.path.expanduser((raw.get("factory") or {}).get(
+            "binary", "~/.local/share/gondr/gondr-factory"))},
     )
 
 

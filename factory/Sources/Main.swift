@@ -10,41 +10,41 @@ enum FactoryError: Error, CustomStringConvertible {
 
 private let usage = """
 Usage (mint, revoke and exec also need --reason "<why>", before any --):
-  infra-token-factory mint cloudflare <options>
-  infra-token-factory revoke cloudflare --name <token-name> --account-id <id>
-  infra-token-factory mint planetscale <options>
-  infra-token-factory revoke planetscale --org <org> --name <token-name>
-  infra-token-factory exec planetscale --org <org> [--org-access <a>] [--database <db> --database-access <a>] --expires-in <N>h -- <command>
-  infra-token-factory mint fly <options>
-  infra-token-factory exec fly --org <org> -- <command> [args...]
-  infra-token-factory mint tailscale <options>
-  infra-token-factory revoke tailscale --tailnet <label> --name <key-name>
-  infra-token-factory exec tailscale --tailnet <label> --scope <scope> [--scope ...] -- <command> [args...]
-  infra-token-factory mint openrouter <options>
-  infra-token-factory revoke openrouter --account <label> (--name <key-name> | --hash <h> ...)
-  infra-token-factory list openrouter --account <label>
-  infra-token-factory revoke openrouter-workspace --account <label> --slug <slug>
-  infra-token-factory create openrouter-workspace --account <label> --slug <slug> --name <name> [--monthly-budget-usd <N>]
-  infra-token-factory mint gitlab-deploy <options>
-  infra-token-factory revoke gitlab-deploy --account <label> --project <group/project> --name <name>
-  infra-token-factory exec gitlab --account <label> -- <command> [args...]
-  infra-token-factory exec github --app <label> --owner <login> --repo <name> --permission <name>:<read|write> -- <command>
-  infra-token-factory exec hetzner --project <label> -- <command> [args...]
-  infra-token-factory import planetscale --org <org>
-  infra-token-factory import hetzner --project <label>
-  infra-token-factory import fly --org <org>
-  infra-token-factory import tailscale --tailnet <label>
-  infra-token-factory import openrouter --account <label>
-  infra-token-factory import gitlab --account <label>
-  infra-token-factory import github --app <label> --app-id <id> --key-file <path.pem>
-  infra-token-factory check cloudflare
-  infra-token-factory check planetscale --org <org>
-  infra-token-factory check hetzner --project <label>
-  infra-token-factory check fly --org <org>
-  infra-token-factory check tailscale --tailnet <label>
-  infra-token-factory check openrouter --account <label>
-  infra-token-factory check gitlab --account <label>
-  infra-token-factory check github --app <label>
+  gondr token mint cloudflare <options>
+  gondr token revoke cloudflare --name <token-name> --account-id <id>
+  gondr token mint planetscale <options>
+  gondr token revoke planetscale --org <org> --name <token-name>
+  gondr token exec planetscale --org <org> [--org-access <a>] [--database <db> --database-access <a>] --expires-in <N>h -- <command>
+  gondr token mint fly <options>
+  gondr token exec fly --org <org> -- <command> [args...]
+  gondr token mint tailscale <options>
+  gondr token revoke tailscale --tailnet <label> --name <key-name>
+  gondr token exec tailscale --tailnet <label> --scope <scope> [--scope ...] -- <command> [args...]
+  gondr token mint openrouter <options>
+  gondr token revoke openrouter --account <label> (--name <key-name> | --hash <h> ...)
+  gondr token list openrouter --account <label>
+  gondr token revoke openrouter-workspace --account <label> --slug <slug>
+  gondr token create openrouter-workspace --account <label> --slug <slug> --name <name> [--monthly-budget-usd <N>]
+  gondr token mint gitlab-deploy <options>
+  gondr token revoke gitlab-deploy --account <label> --project <group/project> --name <name>
+  gondr token exec gitlab --account <label> -- <command> [args...]
+  gondr token exec github --app <label> --owner <login> --repo <name> --permission <name>:<read|write> -- <command>
+  gondr token exec hetzner --project <label> -- <command> [args...]
+  gondr token import planetscale --org <org>
+  gondr token import hetzner --project <label>
+  gondr token import fly --org <org>
+  gondr token import tailscale --tailnet <label>
+  gondr token import openrouter --account <label>
+  gondr token import gitlab --account <label>
+  gondr token import github --app <label> --app-id <id> --key-file <path.pem>
+  gondr token check cloudflare
+  gondr token check planetscale --org <org>
+  gondr token check hetzner --project <label>
+  gondr token check fly --org <org>
+  gondr token check tailscale --tailnet <label>
+  gondr token check openrouter --account <label>
+  gondr token check gitlab --account <label>
+  gondr token check github --app <label>
 """
 
 @main

@@ -86,15 +86,15 @@ enum Fly {
         let options = try Options(
             arguments,
             allowed: ["--org", "--app", "--expires-in",
-                      "--infisical-project", "--infisical-env", "--infisical-path", "--infisical-secret"]
+                      "--env", "--path", "--secret"]
         )
         let org = try validSlug(try options.required("--org"), "--org")
         let app = try validSlug(try options.required("--app"), "--app")
         guard let expiresIn = try parseExpiry(try options.required("--expires-in")), expiresIn <= 30 * 86400 else {
             throw FactoryError.message("Fly children cannot be revoked alone: give --expires-in of 30d or less")
         }
-        let destination = try InfisicalDestination(options)
-        let secret = try options.required("--infisical-secret")
+        let destination = try SecretDestination(options)
+        let secret = try options.required("--secret")
         guard isSecretName(secret) else {
             throw FactoryError.message("One or more arguments have an invalid shape")
         }
@@ -139,7 +139,7 @@ enum Fly {
 
         print("mint=complete")
         print("derived_token_verified=true")
-        print("infisical_secret=\(secret)")
+        print("secret=\(secret)")
         print("parent_exposed=false")
     }
 
