@@ -72,7 +72,7 @@ infra-token-factory import github --app <label> --app-id <id> --key-file <path.p
 `mint`, `revoke` and `exec` need `--reason "<why>"`, placed before any `--`.
 The terminal and the Touch ID dialog then show:
 
-- the action, for example `run with Hetzner project ai-dev: true`;
+- the action, for example `run with Hetzner project my-project: true`;
 - **Requested by**: the nearest agent process (`claude`, `codex` and others),
   found from the executable paths of the parent processes, and its session
   title (the Herdr pane title);
