@@ -158,7 +158,7 @@ def check_env(cfg, env):
 
 
 def check_publish_path(cfg, scope, path):
-    roots = [cfg.prefix, cfg.shared, *(b.prefix for b in cfg.boundaries)]
+    roots = [cfg.prefix, cfg.shared, *cfg.service_roots, *(b.prefix for b in cfg.boundaries)]
     if not any(path.startswith(r + "/") for r in roots):
         die(f"{path} is outside " + ", ".join(r + "/" for r in roots))
     if any(seg in ("", ".", "..") for seg in path.split("/")[1:]):

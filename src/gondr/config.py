@@ -49,6 +49,7 @@ class Config:
     repos_root: Path
     prefix: str
     shared: str
+    service_roots: list
     agent_vault: dict | None
     services: dict
     boundaries: list
@@ -83,6 +84,7 @@ def load():
         repos_root=expand(layout.get("repos_root", "~/repos")),
         prefix="/" + layout.get("prefix", "/repos").strip("/"),
         shared="/" + layout.get("shared", "/shared").strip("/"),
+        service_roots=["/" + r.strip("/") for r in layout.get("service_roots", [])],
         agent_vault=av,
         services=raw.get("services") or {},
         boundaries=[Boundary(name=b["name"], dir=expand(b["dir"]), prefix="/" + b["prefix"].strip("/"),

@@ -40,6 +40,7 @@ client_secret_service = "infisical-client-secret"
 repos_root = "~/repos"   # local folder that maps to `prefix`
 prefix = "/repos"        # Infisical folder for repos
 shared = "/shared"       # Infisical folder for shared owners
+service_roots = []      # extra write roots for deployed services, e.g. ["/services"]; default []
 
 [agent_vault]
 binary = "agent-vault"
@@ -137,8 +138,9 @@ A boundary keeps one set of secrets with one set of directories.
 - Reads the value from stdin. A terminal on stdin, or an empty value: exit 1.
 - The value is stored byte for byte as read (no newline trimming).
 - `KEY` must match `^[A-Z][A-Z0-9_]*$`.
-- The path must start with `layout.prefix/` or `layout.shared/` (or a boundary prefix) and have no
-  empty, `.` or `..` segment.
+- The path must start with `layout.prefix/`, `layout.shared/`, a `layout.service_roots` entry plus `/`,
+  or a boundary prefix, and have no empty, `.` or `..` segment. A service root is never a default
+  folder: it is reached only with `--path`, and the boundary guard applies to it as to any path.
 - `GET /api/v4/secrets/<KEY>` with `viewSecretValue=false`: 200 → `PATCH`, 404 → `POST` with
   `secretComment`. Both send `{projectId, environment, secretPath, secretValue, skipMultilineEncoding: true, type: "shared"}`.
 - Prints `created <KEY> in <env>:<path>` or `updated <KEY> in <env>:<path>`. Never the value.
@@ -334,4 +336,6 @@ A boundary keeps one set of secrets with one set of directories.
 - F36 `token` changes the options of a non-`mint` verb, adds `--env`/`--path` to them, or drops
   `GONDR_BIN` from the factory's environment.
 - F37 `token` logs in to Infisical or sends an HTTP request.
+- F38 `set` or `token mint` refuses a path under a `service_roots` entry, accepts the root itself or a
+  path under an unlisted root, or lets a boundary directory reach a service root.
 - F30 `check` reads a value from the example file, exits 0 with a gap, or misreads `export NAME=` lines.
