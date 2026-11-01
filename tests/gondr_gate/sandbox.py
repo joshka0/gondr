@@ -45,7 +45,7 @@ CATALOG = [
 
 
 def config_text(url, *, creds="keychain", token="keychain", boundary=True, services=SERVICES_TOML,
-                agent_vault=True, allow_vaults=(), folders=()):
+                agent_vault=True, allow_vaults=(), folders=(), factory=None):
     t = '[infisical]\nurl = "%s"\nproject = "%s"\n' % (url, PROJECT)
     t += 'environments = ["dev", "staging", "prod"]\ndefault_environment = "dev"\nwarn_environments = ["prod"]\n'
     t += '\n[infisical.credentials]\nsource = "%s"\n' % creds
@@ -69,6 +69,8 @@ def config_text(url, *, creds="keychain", token="keychain", boundary=True, servi
               'shared = "/repos/acme/tooling"\nvault_prefix = "acme"\n'
               + ('allow_vaults = [%s]\n' % ", ".join('"%s"' % v for v in allow_vaults) if allow_vaults else "") +
               'deny_agents = ["some-agent", "other-agent", "third-agent"]\n')
+    if factory:
+        t += '\n[factory]\nbinary = "%s"\n' % factory
     return t
 
 
@@ -137,10 +139,10 @@ class Case:
         return e
 
     # ---- running
-    def run(self, args, cwd=None, stdin=b"", env=None, unset=(), tty=False):
+    def run(self, args, cwd=None, stdin=b"", env=None, unset=(), tty=False, cmd=None):
         import subprocess
         self.write_stub_cfg()
-        argv = [PY, "-m", "gondr"] + list(args)
+        argv = list(cmd or [PY, "-m", "gondr"]) + list(args)
         cwd = str(cwd or self.app)
         fds = None
         try:

@@ -2,7 +2,7 @@
 
 
 STUB_NAMES = ["git", "security", "infisical", "agent-vault",
-              "childprobe", "claude", "codex", "some-agent", "other-agent", "third-agent"]
+              "childprobe", "claude", "codex", "some-agent", "other-agent", "third-agent", "gondr-factory"]
 
 STUB_SRC = r'''#!{py}
 import json, os, sys
@@ -20,7 +20,7 @@ try:
 except Exception:
     pass
 SEL = ("HOME", "INFISICAL_TOKEN", "AGENT_VAULT_ADDR", "AGENT_VAULT_TOKEN", "AGENT_VAULT_VAULT",
-       "AGENT_VAULT_TELEMETRY", "NO_PROXY", "no_proxy", "KEEP_ME", "HTTPS_PROXY")
+       "AGENT_VAULT_TELEMETRY", "NO_PROXY", "no_proxy", "KEEP_ME", "HTTPS_PROXY", "GONDR_BIN")
 entry = {"tool": name, "argv": argv, "cwd": os.getcwd(), "stdin": stdin,
          "env": {k: os.environ.get(k) for k in SEL}}
 with open(os.environ["GONDR_STUB_LOG"], "a") as f:
@@ -73,6 +73,8 @@ if name == "infisical":
                 tail[0] = "/usr/bin/env"
             os.execvp(tail[0], tail)
     sys.exit(0)
+if name == "gondr-factory":
+    sys.exit(cfg.get("factory_exit", 0))
 if name == "agent-vault":
     if argv[:1] == ["catalog"]:
         print(json.dumps(cfg.get("catalog", [])))

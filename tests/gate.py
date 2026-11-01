@@ -29,6 +29,7 @@ CASE_MODULES = [
     "cases_status",
     "cases_find",
     "cases_check",
+    "cases_token",
 ]
 
 if __name__ == "__main__":
