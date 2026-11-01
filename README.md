@@ -6,14 +6,14 @@ Keychain. The binary never prints them.
 
 | Provider | Mode | Keychain item (service / account) |
 | --- | --- | --- |
-| Cloudflare | Mint an account-owned child token into Infisical | `gondr-token.cloudflare` / `bootstrap` |
-| PlanetScale | Mint a child service token into Infisical, or run one approved command with a child that is deleted when the command exits | `gondr-token.planetscale` / `<org>` |
-| Hetzner Cloud | Run one approved command with `HCLOUD_TOKEN` set | `gondr-token.hetzner` / `<project>` |
-| Fly.io | Mint an app-scoped child into Infisical, or run one approved command with `FLY_API_TOKEN` (org token) | `gondr-token.fly` / `<org>` |
-| Tailscale | Mint a tagged auth key into Infisical, or run one approved command with a 1-hour API token (`TAILSCALE_API_KEY`) limited to named scopes | `gondr-token.tailscale` / `<tailnet>` |
-| OpenRouter | Mint an API key with a credit limit into Infisical | `gondr-token.openrouter` / `<account>` |
-| GitLab.com | Mint a project deploy token into Infisical, or run one approved command with `GITLAB_TOKEN` (the PAT) | `gondr-token.gitlab` / `<account>` |
-| GitHub | Run one approved command with a 1-hour installation token (`GH_TOKEN`) limited to named repos and permissions | `gondr-token.github` / `<app>` |
+| Cloudflare | Mint an account-owned child token into Infisical | `<prefix>.cloudflare` / `bootstrap` |
+| PlanetScale | Mint a child service token into Infisical, or run one approved command with a child that is deleted when the command exits | `<prefix>.planetscale` / `<org>` |
+| Hetzner Cloud | Run one approved command with `HCLOUD_TOKEN` set | `<prefix>.hetzner` / `<project>` |
+| Fly.io | Mint an app-scoped child into Infisical, or run one approved command with `FLY_API_TOKEN` (org token) | `<prefix>.fly` / `<org>` |
+| Tailscale | Mint a tagged auth key into Infisical, or run one approved command with a 1-hour API token (`TAILSCALE_API_KEY`) limited to named scopes | `<prefix>.tailscale` / `<tailnet>` |
+| OpenRouter | Mint an API key with a credit limit into Infisical | `<prefix>.openrouter` / `<account>` |
+| GitLab.com | Mint a project deploy token into Infisical, or run one approved command with `GITLAB_TOKEN` (the PAT) | `<prefix>.gitlab` / `<account>` |
+| GitHub | Run one approved command with a 1-hour installation token (`GH_TOKEN`) limited to named repos and permissions | `<prefix>.github` / `<app>` |
 
 Hetzner Cloud has no API to create tokens, so the factory gates each command
 instead. The command can read the token. Approve only commands you trust.
@@ -23,6 +23,11 @@ instead. The command can read the token. Approve only commands you trust.
 Run `bin/install`. It builds the binary into
 `~/.local/share/infra-token-factory/` and links it as
 `~/.local/bin/infra-token-factory`.
+
+`<prefix>` in the table above is the start of each Keychain service name. The
+default is `infra-token-factory`. To use another, for example a reverse-DNS
+name of your own, install with `KEYCHAIN_PREFIX=com.example.infra-token-factory bin/install`.
+Use the same prefix on every install, or the binary cannot find your parent credentials.
 
 After each install, the first use of each Keychain item makes macOS ask for
 your login password. Enter it and click **Always Allow**. Later requests need

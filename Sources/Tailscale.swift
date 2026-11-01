@@ -1,7 +1,7 @@
 import Foundation
 
 /// Tailscale auth keys, minted with a parent OAuth client kept in Keychain
-/// item `gondr-token.tailscale` / `<tailnet>` as
+/// item `<prefix>.tailscale` / `<tailnet>` as
 /// `<client id>:<client secret>`. `mint` and `revoke` need the `auth_keys`
 /// scope, and the client owns the tags that keys may carry. `exec` can ask
 /// only for scopes the client holds.
@@ -43,7 +43,7 @@ enum Tailscale {
     }
 
     private static func parent(_ tailnet: String) -> KeychainItem {
-        KeychainItem(service: "gondr-token.tailscale", account: tailnet)
+        KeychainItem(service: "\(keychainPrefix).tailscale", account: tailnet)
     }
 
     private static func validTailnet(_ value: String) throws -> String {
@@ -106,7 +106,7 @@ enum Tailscale {
         try await requireUserApproval(action: "store the Tailscale OAuth client for \(tailnet) in Keychain.")
         try parent(tailnet).write(id + Data(":".utf8) + secret)
         print("import=complete")
-        print("keychain_service=gondr-token.tailscale")
+        print("keychain_service=\(keychainPrefix).tailscale")
         print("keychain_account=\(tailnet)")
     }
 

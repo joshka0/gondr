@@ -2,9 +2,9 @@ import CryptoKit
 import Foundation
 
 /// Account-owned Cloudflare tokens, minted with the parent in Keychain item
-/// `gondr-token.cloudflare` / `bootstrap`.
+/// `<prefix>.cloudflare` / `bootstrap`.
 enum Cloudflare {
-    private static let parent = KeychainItem(service: "gondr-token.cloudflare", account: "bootstrap")
+    private static let parent = KeychainItem(service: "\(keychainPrefix).cloudflare", account: "bootstrap")
     private static let apiBase = URL(string: "https://api.cloudflare.com/client/v4")!
 
     private struct Envelope<T: Decodable>: Decodable {

@@ -1,7 +1,7 @@
 import Foundation
 
 /// GitLab.com. The parent is a personal access token with the `api` scope,
-/// kept in Keychain item `gondr-token.gitlab` / `<account>`.
+/// kept in Keychain item `<prefix>.gitlab` / `<account>`.
 /// On GitLab.com Free a PAT cannot mint scoped access tokens, so the factory
 /// mints project deploy tokens and gates every other use behind `exec`.
 enum GitLab {
@@ -39,7 +39,7 @@ enum GitLab {
     private struct Ignored: Decodable {}
 
     private static func parent(_ account: String) -> KeychainItem {
-        KeychainItem(service: "gondr-token.gitlab", account: account)
+        KeychainItem(service: "\(keychainPrefix).gitlab", account: account)
     }
 
     private static func validAccount(_ value: String) throws -> String {
@@ -88,7 +88,7 @@ enum GitLab {
         try await requireUserApproval(action: "store the GitLab personal access token for \(account) in Keychain.")
         try parent(account).write(token)
         print("import=complete")
-        print("keychain_service=gondr-token.gitlab")
+        print("keychain_service=\(keychainPrefix).gitlab")
         print("keychain_account=\(account)")
     }
 

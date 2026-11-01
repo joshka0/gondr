@@ -1,7 +1,7 @@
 import Foundation
 
 /// Fly.io tokens. The parent org token lives in Keychain item
-/// `gondr-token.fly` / `<org>` as the `FlyV1 fm2_…` header
+/// `<prefix>.fly` / `<org>` as the `FlyV1 fm2_…` header
 /// value. Fly refuses token creation through the API for org tokens, so a
 /// child is the parent attenuated offline (`fly tokens attenuate`) to one app
 /// and a validity window. A child cannot be revoked alone: revoking the parent
@@ -32,7 +32,7 @@ enum Fly {
     }
 
     private static func parent(_ org: String) -> KeychainItem {
-        KeychainItem(service: "gondr-token.fly", account: org)
+        KeychainItem(service: "\(keychainPrefix).fly", account: org)
     }
 
     private static func validSlug(_ value: String, _ flag: String) throws -> String {
@@ -76,7 +76,7 @@ enum Fly {
         try await requireUserApproval(action: "store the Fly org token for \(org) in Keychain.")
         try parent(org).write(header)
         print("import=complete")
-        print("keychain_service=gondr-token.fly")
+        print("keychain_service=\(keychainPrefix).fly")
         print("keychain_account=\(org)")
     }
 

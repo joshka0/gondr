@@ -1,7 +1,7 @@
 import Foundation
 
 /// OpenRouter API keys with a credit limit, minted with a management key kept
-/// in Keychain item `gondr-token.openrouter` / `<account>`.
+/// in Keychain item `<prefix>.openrouter` / `<account>`.
 /// The limit is the budget: OpenRouter refuses requests once it is spent,
 /// until the reset.
 enum OpenRouter {
@@ -57,7 +57,7 @@ enum OpenRouter {
     }
 
     private static func parent(_ account: String) -> KeychainItem {
-        KeychainItem(service: "gondr-token.openrouter", account: account)
+        KeychainItem(service: "\(keychainPrefix).openrouter", account: account)
     }
 
     private static func validAccount(_ value: String) throws -> String {
@@ -218,7 +218,7 @@ enum OpenRouter {
         try await requireUserApproval(action: "store the OpenRouter management key for \(account) in Keychain.")
         try parent(account).write(key)
         print("import=complete")
-        print("keychain_service=gondr-token.openrouter")
+        print("keychain_service=\(keychainPrefix).openrouter")
         print("keychain_account=\(account)")
     }
 

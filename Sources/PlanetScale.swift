@@ -1,7 +1,7 @@
 import Foundation
 
 /// PlanetScale service tokens, minted with a parent service token kept in
-/// Keychain item `gondr-token.planetscale` / `<org>` as
+/// Keychain item `<prefix>.planetscale` / `<org>` as
 /// `<id>:<token>` (the API's Authorization header value).
 enum PlanetScale {
     private static let apiBase = URL(string: "https://api.planetscale.com/v1")!
@@ -33,7 +33,7 @@ enum PlanetScale {
     }
 
     private static func parent(_ org: String) -> KeychainItem {
-        KeychainItem(service: "gondr-token.planetscale", account: org)
+        KeychainItem(service: "\(keychainPrefix).planetscale", account: org)
     }
 
     private static func validOrg(_ org: String) throws -> String {
@@ -87,7 +87,7 @@ enum PlanetScale {
         try await requireUserApproval(action: "store the PlanetScale parent service token for \(org) in Keychain.")
         try parent(org).write(id + Data(":".utf8) + token)
         print("import=complete")
-        print("keychain_service=gondr-token.planetscale")
+        print("keychain_service=\(keychainPrefix).planetscale")
         print("keychain_account=\(org)")
     }
 

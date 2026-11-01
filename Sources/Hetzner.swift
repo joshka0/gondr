@@ -1,12 +1,12 @@
 import Foundation
 
 /// Hetzner Cloud cannot mint tokens, so the factory gates use instead: a
-/// project token kept in Keychain item `gondr-token.hetzner`
+/// project token kept in Keychain item `<prefix>.hetzner`
 /// / `<project>` goes into `HCLOUD_TOKEN` for one approved command. The
 /// command can read the token; approve only commands you trust.
 enum Hetzner {
     private static func parent(_ project: String) -> KeychainItem {
-        KeychainItem(service: "gondr-token.hetzner", account: project)
+        KeychainItem(service: "\(keychainPrefix).hetzner", account: project)
     }
 
     private static func validProject(_ project: String) throws -> String {
@@ -29,7 +29,7 @@ enum Hetzner {
         try await requireUserApproval(action: "store the Hetzner Cloud token for project \(project) in Keychain.")
         try parent(project).write(token)
         print("import=complete")
-        print("keychain_service=gondr-token.hetzner")
+        print("keychain_service=\(keychainPrefix).hetzner")
         print("keychain_account=\(project)")
     }
 

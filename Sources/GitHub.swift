@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 /// GitHub through a GitHub App. The parent is the app's private key, kept in
-/// Keychain item `gondr-token.github` / `<app>` as
+/// Keychain item `<prefix>.github` / `<app>` as
 /// `<app id>\n<PKCS#1 PEM>`. Each `exec github` mints an installation token
 /// limited to named repositories and permissions; it expires after one hour
 /// and is never stored.
@@ -27,7 +27,7 @@ enum GitHub {
     private struct APIError: Decodable { let message: String? }
 
     private static func parent(_ app: String) -> KeychainItem {
-        KeychainItem(service: "gondr-token.github", account: app)
+        KeychainItem(service: "\(keychainPrefix).github", account: app)
     }
 
     private static func validName(_ value: String, _ flag: String) throws -> String {
@@ -63,7 +63,7 @@ enum GitHub {
         try await requireUserApproval(action: "store the GitHub App \(app) private key in Keychain.")
         try parent(app).write(Data("\(appID)\n".utf8) + pem)
         print("import=complete")
-        print("keychain_service=gondr-token.github")
+        print("keychain_service=\(keychainPrefix).github")
         print("keychain_account=\(app)")
         print("next=delete the downloaded key file: \(path)")
     }
