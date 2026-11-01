@@ -62,7 +62,7 @@ maps a repo whose folder does not follow its path. A repo with `.infisical.json`
 | `gondr token mint <provider> --secret KEY ...` | Mint a scoped cloud credential into this repo's folder, after Touch ID (macOS) |
 | `gondr token exec\|revoke\|check\|import <provider> ...` | Run one command with a short-lived credential, revoke one, or manage parent credentials |
 
-`status`, `find` and `check` take `--json`. Give your agents the block in [`docs/agents.md`](docs/agents.md), or install [`skill/`](skill/SKILL.md) as the `gondr` skill.
+`status`, `find` and `check` take `--json`. Give your agents the block in [`docs/agents.md`](docs/agents.md), or install [`skills/gondr`](skills/gondr/SKILL.md) as a skill.
 To set up the same pattern without `gondr`, follow [`docs/cookbook.md`](docs/cookbook.md).
 
 Every command takes `--env <environment>`. The default is `dev`.
