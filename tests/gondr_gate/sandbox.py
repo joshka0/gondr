@@ -45,7 +45,7 @@ CATALOG = [
 
 
 def config_text(url, *, creds="keychain", token="keychain", boundary=True, services=SERVICES_TOML,
-                agent_vault=True, allow_vaults=(), folders=(), factory=None):
+                agent_vault=True, allow_vaults=(), folders=(), factory=None, service_roots=None):
     t = '[infisical]\nurl = "%s"\nproject = "%s"\n' % (url, PROJECT)
     t += 'environments = ["dev", "staging", "prod"]\ndefault_environment = "dev"\nwarn_environments = ["prod"]\n'
     t += '\n[infisical.credentials]\nsource = "%s"\n' % creds
@@ -54,6 +54,8 @@ def config_text(url, *, creds="keychain", token="keychain", boundary=True, servi
               'client_id_service = "infisical-client-id"\n'
               'client_secret_service = "infisical-client-secret"\n')
     t += '\n[layout]\nrepos_root = "~/repos"\nprefix = "/repos"\nshared = "/shared"\n'
+    if service_roots is not None:
+        t += 'service_roots = [%s]\n' % ", ".join('"%s"' % r for r in service_roots)
     if agent_vault:
         t += ('\n[agent_vault]\nbinary = "agent-vault"\naddress = "http://broker:14321"\n'
               'default_vault = "shared"\ngrant_agents = ["my-agent"]\nreferences_folder = "agent-vault"\n')
