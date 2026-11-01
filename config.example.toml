@@ -1,5 +1,6 @@
 # gondr config. Copy to ~/.config/gondr/config.toml and edit.
 [infisical]
+# EU cloud. US cloud: https://app.infisical.com. Or your self-hosted URL.
 url = "https://eu.infisical.com"
 project = "<infisical project id>"
 

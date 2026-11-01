@@ -13,7 +13,7 @@ It drives two open-source Infisical products:
 ## Install
 
 ```sh
-uv tool install gondr      # or: pipx install gondr
+uv tool install git+https://github.com/joshka0/gondr   # or: pipx install git+https://github.com/joshka0/gondr
 ```
 
 You also need the [`infisical` CLI](https://infisical.com/docs/cli/overview) for `gondr run`, and the
@@ -23,9 +23,11 @@ You also need the [`infisical` CLI](https://infisical.com/docs/cli/overview) for
 
 1. Create an Infisical [machine identity](https://infisical.com/docs/documentation/platform/identities/universal-auth)
    with Universal Auth. Give it access to your project.
-2. Store its client ID and secret in the macOS Keychain, or export them as
-   `INFISICAL_UNIVERSAL_AUTH_CLIENT_ID` and `INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET`.
+2. Store its client ID and secret in the macOS Keychain. On Linux, export them as
+   `INFISICAL_UNIVERSAL_AUTH_CLIENT_ID` and `INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET`, and set
+   `source = "env"` in the config.
 3. Copy [`config.example.toml`](config.example.toml) to `~/.config/gondr/config.toml` and edit it.
+   Set `url` to the Infisical region or self-hosted server of your project.
 
 ## Folder layout
 
@@ -57,6 +59,7 @@ maps a repo whose folder does not follow its path. A repo with `.infisical.json`
 | `gondr check` | Which names in `.env.example` reach this repo |
 
 `status`, `find` and `check` take `--json`. Give your agents the block in [`docs/agents.md`](docs/agents.md).
+To set up the same pattern without `gondr`, follow [`docs/cookbook.md`](docs/cookbook.md).
 
 Every command takes `--env <environment>`. The default is `dev`.
 
