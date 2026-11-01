@@ -27,7 +27,7 @@ def cmd_token(cfg, scope, args):
         die("usage: gondr token <" + "|".join(VERBS) + "> <provider> [options]",
             "run `gondr token check cloudflare` to see the factory's full usage")
     binary = cfg.factory["binary"]
-    if not os.access(binary, os.X_OK):
+    if not (os.path.isfile(binary) and os.access(binary, os.X_OK)):
         die(f"no token factory at {binary}", "build it with factory/bin/install (macOS only)")
     argv = [binary, *args]
     if args[0] == "mint":

@@ -244,16 +244,21 @@ A boundary keeps one set of secrets with one set of directories.
 ### `gondr token <verb> <provider> [options]`
 
 - Verbs: `mint`, `revoke`, `exec`, `check`, `import`, `list`, `create`. Any other verb, or fewer than two
-  arguments, prints the usage and exits 1, with no exec.
+  arguments, prints `gondr: usage: gondr token <verbs> <provider> [options]` on stderr and exits 1,
+  with no exec.
 - The factory is `factory.binary` (default `~/.local/share/gondr/gondr-factory`). If it is not an
   executable file: exit 1 with a hint to run `factory/bin/install`. No login and no exec.
 - Every verb execs `<binary> <verb> <provider> <options...>` with the inherited environment plus
   `GONDR_BIN`, the absolute path of the running gondr launcher (resolved `argv[0]`). If `argv[0]` is
   `__main__.py` or not executable: exit 1 before any exec.
-- `mint`: gondr takes `--env` and `--path` out of the options. It checks the env as in `set`, resolves
-  the folder as in `set` (boundary guard and publish path rules), then execs
+- `mint`: gondr takes `--env <E>` and `--path <P>` (separate-argument form only, as in every gondr
+  command; the last one given wins; a flag with no value exits 1) out of the options. It checks the env
+  as in `set` (including the `warn_environments` notice), resolves the folder as in `set` (boundary
+  guard, publish path rules and the folder-name rule), then execs
   `<binary> mint <provider> <other options...> --env <E> --path <P>`. A `--` in the options exits 1.
-  A failed check exits 1 before the exec, so no Touch ID prompt appears.
+  Every failed check, boundary stops included, exits 1 before the exec, so no Touch ID prompt appears.
+- Other verbs: gondr checks no option. It forwards them unchanged; the factory validates them.
+- The exec replaces gondr, so the factory's exit status is gondr's.
 - gondr does no Infisical login and sends no HTTP request for any verb.
 - The factory stores each minted value by running `$GONDR_BIN set <KEY> --env <E> --path <P>` with the
   value on stdin. A nonzero exit makes it revoke the new credential and exit 1.
