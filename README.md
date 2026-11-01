@@ -13,7 +13,8 @@ It drives two open-source Infisical products:
 ## Install
 
 ```sh
-uv tool install git+https://github.com/joshka0/gondr   # or: pipx install git+https://github.com/joshka0/gondr
+uv tool install "git+https://github.com/joshka0/gondr-secrets#subdirectory=gondr"
+# or: pipx install "git+https://github.com/joshka0/gondr-secrets#subdirectory=gondr"
 ```
 
 You also need the [`infisical` CLI](https://infisical.com/docs/cli/overview) for `gondr run`, and the
