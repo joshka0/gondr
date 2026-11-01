@@ -1,0 +1,116 @@
+import Foundation
+import Security
+
+/// A parent credential in the login keychain. The ACL trusts the binary
+/// that created the item; after a rebuild macOS asks once (Always Allow).
+struct KeychainItem {
+    let service: String
+    let account: String
+
+    private var query: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+    }
+
+    func read() throws -> Data {
+        var lookup = query
+        lookup[kSecReturnData as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(lookup as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data, !data.isEmpty else {
+            throw FactoryError.message("Keychain parent credential \(service)/\(account) is unavailable (status \(status))")
+        }
+        return data
+    }
+
+    func write(_ data: Data) throws {
+        let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if update == errSecSuccess { return }
+        guard update == errSecItemNotFound else {
+            throw FactoryError.message("Keychain update failed (status \(update))")
+        }
+        var add = query
+        add[kSecValueData as String] = data
+        let status = SecItemAdd(add as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw FactoryError.message("Keychain add failed (status \(status))")
+        }
+    }
+
+    /// Reads the item after approval and reports presence only.
+    func check() async throws {
+        try await requireUserApproval(action: "check whether the \(service) parent credential is available.")
+        var data = try read()
+        let present = !data.isEmpty
+        data.resetBytes(in: 0..<data.count)
+        print("keychain_service=\(service)")
+        print("keychain_account=\(account)")
+        print("credential_present=\(present)")
+        print("credential_exposed=false")
+    }
+}
+
+/// Reads one secret from the terminal with echo off. Never from stdin, so
+/// a pipe or an agent cannot feed it silently.
+func readSecretFromTerminal(prompt: String) throws -> Data {
+    var buffer = [CChar](repeating: 0, count: 4096)
+    guard readpassphrase(prompt, &buffer, buffer.count, RPP_REQUIRE_TTY) != nil else {
+        throw FactoryError.message("A terminal is required to enter the secret")
+    }
+    defer { for index in buffer.indices { buffer[index] = 0 } }
+    let length = buffer.firstIndex(of: 0) ?? 0
+    guard length > 0 else { throw FactoryError.message("Empty secret") }
+    return Data(buffer[0..<length].map { UInt8(bitPattern: $0) })
+}
+
+struct InfisicalDestination {
+    let project: String
+    let environment: String
+    let path: String
+
+    init(_ options: Options) throws {
+        project = try options.required("--infisical-project")
+        environment = try options.required("--infisical-env")
+        path = try options.required("--infisical-path")
+        guard matches(project, "^[0-9a-f-]{36}$"),
+              matches(environment, "^[A-Za-z0-9_-]+$"),
+              path.hasPrefix("/"), !path.contains("..") else {
+            throw FactoryError.message("Infisical destination has an invalid shape")
+        }
+    }
+
+    func label(_ secret: String) -> String {
+        "Infisical \(path == "/" ? "" : path)/\(secret)"
+    }
+
+    /// Writes the value through stdin, so it never appears in argv.
+    func store(_ value: String, as secret: String) throws {
+        let process = Process()
+        let input = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/infisical")
+        process.arguments = [
+            "secrets", "set", "\(secret)=@/dev/stdin",
+            "--projectId", project,
+            "--env", environment,
+            "--path", path,
+            "--type", "shared",
+            "--silent",
+        ]
+        process.standardInput = input
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        input.fileHandleForWriting.write(Data(value.utf8))
+        try input.fileHandleForWriting.close()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw FactoryError.message("Infisical CLI exited \(process.terminationStatus)")
+        }
+    }
+}
+
+func isSecretName(_ value: String) -> Bool { matches(value, "^[A-Z][A-Z0-9_]+$") }
