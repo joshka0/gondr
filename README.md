@@ -35,6 +35,7 @@ factory with `factory/bin/install`; [`factory/README.md`](factory/README.md) lis
 ## Keeper
 
 [Keeper Secrets Manager](https://docs.keeper.io/en/keeperpam/secrets-manager/overview) can hold the secrets in place of Infisical.
+Your Keeper account must have Secrets Manager enabled: the **Secrets Manager** tab in the vault. A vault without it cannot work with `gondr`.
 
 1. Install the extra: `uv tool install "gondr[keeper] @ git+https://github.com/joshka0/gondr"`, or `pip install 'gondr[keeper]'`.
 2. Create a Keeper shared folder and a KSM application with access to it. Create the application's one-time token
