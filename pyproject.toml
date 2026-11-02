@@ -8,15 +8,15 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = []
 
-[project.optional-dependencies]
-keeper = ["keeper-secrets-manager-core==17.3.0"]
-
 keywords = ["infisical", "agent-vault", "secrets", "ai-agents", "cli"]
 classifiers = [
   "Environment :: Console",
   "Programming Language :: Python :: 3",
   "Topic :: Security",
 ]
+
+[project.optional-dependencies]
+keeper = ["keeper-secrets-manager-core==17.3.0"]
 
 [project.scripts]
 gondr = "gondr.cli:main"
