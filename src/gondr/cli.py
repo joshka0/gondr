@@ -20,6 +20,9 @@ Token factory (macOS, Touch ID; build with factory/bin/install):
   gondr token mint <provider> --secret KEY [--env E] [--path P] ...  mint a scoped child into this repo's folder
   gondr token exec|revoke|check|import|list|create <provider> ...   run the factory; `check cloudflare` prints usage
 
+Store: Infisical by default. With [store] kind = "keeper" (pip install 'gondr[keeper]'), Keeper holds the secrets;
+`need`, `agent` and `onboard` do not work there.
+
 gondr prints key names, never values. Config: $GONDR_CONFIG or ~/.config/gondr/config.toml.
 """
 import sys
