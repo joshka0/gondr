@@ -85,7 +85,7 @@ enum GitLab {
         guard token.starts(with: Data("glpat-".utf8)) else {
             throw FactoryError.message("A GitLab personal access token starts with glpat-")
         }
-        try await requireUserApproval(action: "store the GitLab personal access token for \(account) in Keychain.")
+        try await requireUserApproval(parent: parent(account), action: "store the GitLab personal access token for \(account) in Keychain.")
         try parent(account).write(token)
         print("import=complete")
         print("keychain_service=\(keychainPrefix).gitlab")
@@ -126,7 +126,7 @@ enum GitLab {
         print("  Expires: \(expiresAt)")
         print("  Destination: \(destination.label(userSecret)), \(destination.label(tokenSecret))")
         try await requireUserApproval(
-            action: "create GitLab deploy token \(name) on \(project) (\(scopes.joined(separator: ", "))) and store it as \(tokenSecret)."
+            parent: parent(account), action: "create GitLab deploy token \(name) on \(project) (\(scopes.joined(separator: ", "))) and store it as \(tokenSecret)."
         )
         var (data, pat) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
@@ -172,7 +172,7 @@ enum GitLab {
         print("GitLab deploy token revocation")
         print("  Project: \(project)")
         print("  Name: \(name)")
-        try await requireUserApproval(action: "revoke the GitLab deploy token \(name) on \(project).")
+        try await requireUserApproval(parent: parent(account), action: "revoke the GitLab deploy token \(name) on \(project).")
         var (data, pat) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
 

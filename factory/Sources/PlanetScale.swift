@@ -84,7 +84,7 @@ enum PlanetScale {
         guard token.starts(with: Data("pscale_tkn_".utf8)) else {
             throw FactoryError.message("The second value must be the token, which starts with pscale_tkn_")
         }
-        try await requireUserApproval(action: "store the PlanetScale parent service token for \(org) in Keychain.")
+        try await requireUserApproval(parent: parent(org), action: "store the PlanetScale parent service token for \(org) in Keychain.")
         try parent(org).write(id + Data(":".utf8) + token)
         print("import=complete")
         print("keychain_service=\(keychainPrefix).planetscale")
@@ -197,7 +197,7 @@ enum PlanetScale {
         print("  Expires: \(expiresIn.map { iso8601(Date().addingTimeInterval($0)) } ?? "never")")
         print("  Destination: \(destination.label(idSecret)), \(destination.label(tokenSecret))")
         try await requireUserApproval(
-            action: "create PlanetScale token \(name) in \(org) (\(grant.all.joined(separator: ", "))) and store it as \(prefix)_SERVICE_TOKEN."
+            parent: parent(org), action: "create PlanetScale token \(name) in \(org) (\(grant.all.joined(separator: ", "))) and store it as \(prefix)_SERVICE_TOKEN."
         )
         var parentData = try parent(org).read()
         defer { parentData.resetBytes(in: 0..<parentData.count) }
@@ -247,7 +247,7 @@ enum PlanetScale {
         grant.printLines()
         print("  Command: \(shown)")
         try await requireUserApproval(
-            action: "run with a PlanetScale token for \(org) (\(grant.all.joined(separator: ", "))): \(shown.count > 160 ? String(shown.prefix(160)) + "…" : shown)"
+            parent: parent(org), action: "run with a PlanetScale token for \(org) (\(grant.all.joined(separator: ", "))): \(shown.count > 160 ? String(shown.prefix(160)) + "…" : shown)"
         )
         var parentData = try parent(org).read()
         defer { parentData.resetBytes(in: 0..<parentData.count) }
@@ -285,7 +285,7 @@ enum PlanetScale {
         print("PlanetScale service token revocation")
         print("  Org: \(org)")
         print("  Name: \(name)")
-        try await requireUserApproval(action: "revoke the PlanetScale service token \(name) in \(org).")
+        try await requireUserApproval(parent: parent(org), action: "revoke the PlanetScale service token \(name) in \(org).")
         var parentData = try parent(org).read()
         defer { parentData.resetBytes(in: 0..<parentData.count) }
         let auth = String(decoding: parentData, as: UTF8.self)

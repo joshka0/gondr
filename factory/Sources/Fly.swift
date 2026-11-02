@@ -73,7 +73,7 @@ enum Fly {
         } else {
             throw FactoryError.message("A Fly org token starts with FlyV1 fm2_ or fm2_")
         }
-        try await requireUserApproval(action: "store the Fly org token for \(org) in Keychain.")
+        try await requireUserApproval(parent: parent(org), action: "store the Fly org token for \(org) in Keychain.")
         try parent(org).write(header)
         print("import=complete")
         print("keychain_service=\(keychainPrefix).fly")
@@ -107,7 +107,7 @@ enum Fly {
         print("  Expires: \(iso8601(Date(timeIntervalSince1970: TimeInterval(notAfter)))) (cannot be revoked alone)")
         print("  Destination: \(destination.label(secret))")
         try await requireUserApproval(
-            action: "create a Fly token for app \(app) in \(org), valid \(Int(expiresIn / 3600))h and not revocable alone, and store it as \(secret)."
+            parent: parent(org), action: "create a Fly token for app \(app) in \(org), valid \(Int(expiresIn / 3600))h and not revocable alone, and store it as \(secret)."
         )
         var (data, auth) = try readParent(org)
         defer { data.resetBytes(in: 0..<data.count) }

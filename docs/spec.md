@@ -338,4 +338,15 @@ A boundary keeps one set of secrets with one set of directories.
 - F37 `token` logs in to Infisical or sends an HTTP request.
 - F38 `set` or `token mint` refuses a path under a `service_roots` entry, accepts the root itself or a
   path under an unlisted root, or lets a boundary directory reach a service root.
+- F39 The factory accepts `--yubikey` on a verb other than `import`, accepts it twice, or passes it to a
+  provider as an option. (`gondr token` forwards it unchanged, as F36 requires.)
+- F40 `import --yubikey` stores a parent the connected YubiKey has not opened once, stores plain text,
+  or stores anything when no YubiKey with a `gondr-token` certificate, or more than one, is connected.
+  It seals to a key that is not on a PIV smart card (`com.apple.pivtoken`), or whose certificate subject
+  is not exactly `gondr-token`, such as an SSH key on another token.
+- F41 A sealed parent reaches a provider, a command environment or stdout without a YubiKey touch, or
+  the Keychain item of a sealed parent holds anything but the `gondr-seal-piv-v1` marker and ciphertext.
+- F42 A use of a sealed parent shows a Touch ID prompt, or a use of a plain parent skips Touch ID.
+- F43 An `import` without `--yubikey` replaces a sealed parent with plain text.
+- F44 `check` on a sealed parent omits `sealed=yubikey`, or prints the value.
 - F30 `check` reads a value from the example file, exits 0 with a gap, or misreads `export NAME=` lines.

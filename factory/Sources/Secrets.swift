@@ -3,6 +3,8 @@ import Security
 
 /// A parent credential in the login keychain. The ACL trusts the binary
 /// that created the item; after a rebuild macOS asks once (Always Allow).
+/// An item imported with `--yubikey` holds ciphertext that only the YubiKey
+/// can open (`YubiKey`); `read` opens it, which needs a touch.
 struct KeychainItem {
     let service: String
     let account: String
@@ -15,7 +17,34 @@ struct KeychainItem {
         ]
     }
 
+    /// The plain credential. A sealed item is opened on the YubiKey.
     func read() throws -> Data {
+        let data = try stored()
+        return YubiKey.isSealed(data) ? try YubiKey.unseal(data) : data
+    }
+
+    /// True when the item exists and is sealed to a YubiKey. Reads only the ciphertext.
+    var isSealed: Bool { (try? stored()).map(YubiKey.isSealed) ?? false }
+
+    /// Stores the credential, sealed when the request has `--yubikey`. A sealed
+    /// item is opened once before it is stored, so a key that cannot open it
+    /// stores nothing; that touch is also the approval. A sealed item is never
+    /// replaced by a plain one.
+    func write(_ data: Data) throws {
+        guard Request.sealWithYubiKey else {
+            guard !isSealed else {
+                throw FactoryError.message("\(service)/\(account) is sealed to a YubiKey; import it again with --yubikey")
+            }
+            return try store(data)
+        }
+        let sealed = try YubiKey.seal(data)
+        var opened = try YubiKey.unseal(sealed)
+        defer { opened.resetBytes(in: 0..<opened.count) }
+        guard opened == data else { throw FactoryError.message("The YubiKey opened a different value; nothing stored") }
+        try store(sealed)
+    }
+
+    private func stored() throws -> Data {
         var lookup = query
         lookup[kSecReturnData as String] = true
         lookup[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -27,7 +56,7 @@ struct KeychainItem {
         return data
     }
 
-    func write(_ data: Data) throws {
+    private func store(_ data: Data) throws {
         let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if update == errSecSuccess { return }
         guard update == errSecItemNotFound else {
@@ -43,13 +72,15 @@ struct KeychainItem {
 
     /// Reads the item after approval and reports presence only.
     func check() async throws {
-        try await requireUserApproval(action: "check whether the \(service) parent credential is available.")
+        try await requireUserApproval(parent: self, action: "check whether the \(service) parent credential is available.")
+        let sealed = isSealed
         var data = try read()
         let present = !data.isEmpty
         data.resetBytes(in: 0..<data.count)
         print("keychain_service=\(service)")
         print("keychain_account=\(account)")
         print("credential_present=\(present)")
+        print("sealed=\(sealed ? "yubikey" : "none")")
         print("credential_exposed=false")
     }
 }

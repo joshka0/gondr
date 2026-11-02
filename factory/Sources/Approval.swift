@@ -4,6 +4,20 @@ import LocalAuthentication
 /// Why the agent asks, from `--reason`. `main` sets it once before dispatch.
 enum Request {
     static var reason: String?
+    /// `import --yubikey`: seal the parent to the YubiKey.
+    static var sealWithYubiKey = false
+}
+
+/// Removes `--yubikey` from the options. Only `import` takes it.
+func takeYubiKey(_ arguments: [String], verb: String) throws -> (arguments: [String], seal: Bool) {
+    let end = arguments.firstIndex(of: "--") ?? arguments.count
+    let count = arguments[..<end].filter { $0 == "--yubikey" }.count
+    guard count > 0 else { return (arguments, false) }
+    guard verb == "import" else { throw FactoryError.message("--yubikey works only with import") }
+    guard count == 1 else { throw FactoryError.message("Duplicate option: --yubikey") }
+    var rest = arguments
+    rest.remove(at: arguments.firstIndex(of: "--yubikey")!)
+    return (rest, true)
 }
 
 /// Removes `--reason <text>` from the options before the `--` separator.
@@ -88,7 +102,11 @@ func herdrSession(agentPID: pid_t) -> (title: String, workspace: String)? {
 
 /// Shows who asks, from where, and why, then asks for Touch ID or the login
 /// password. `action` completes the system text "… is trying to <action>".
-func requireUserApproval(action: String) async throws {
+///
+/// When `parent` is sealed to a YubiKey, or this import seals it, the YubiKey
+/// touch that opens the parent is the approval, so no Touch ID prompt follows.
+/// Every caller reads or writes `parent` right after approval.
+func requireUserApproval(parent: KeychainItem, action: String) async throws {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     let folder = FileManager.default.currentDirectoryPath
     let requester = requestingProcess()
@@ -100,6 +118,11 @@ func requireUserApproval(action: String) async throws {
         "Reason: \(Request.reason ?? "none given")",
     ]
     for line in details { print("  \(line)") }
+    if parent.isSealed || Request.sealWithYubiKey {
+        print("Approve: \(action)")
+        fflush(stdout)
+        return
+    }
     print("Waiting for Touch ID…")
     fflush(stdout)
 
