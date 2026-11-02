@@ -9,6 +9,7 @@ It drives two open-source Infisical products:
   agent behind the proxy, and the proxy adds the key to requests for a mapped host.
 
 `gondr` is one Python file set with no dependencies besides the standard library (Python 3.11 or later).
+The optional [Keeper](#keeper) store needs one extra package.
 
 ## Install
 
@@ -30,6 +31,35 @@ factory with `factory/bin/install`; [`factory/README.md`](factory/README.md) lis
    `source = "env"` in the config.
 3. Copy [`config.example.toml`](config.example.toml) to `~/.config/gondr/config.toml` and edit it.
    Set `url` to the Infisical region or self-hosted server of your project.
+
+## Keeper
+
+[Keeper Secrets Manager](https://docs.keeper.io/en/keeperpam/secrets-manager/overview) can hold the secrets in place of Infisical.
+
+1. Install the extra: `uv tool install "gondr[keeper] @ git+https://github.com/joshka0/gondr"`, or `pip install 'gondr[keeper]'`.
+2. Create a Keeper shared folder and a KSM application with access to it. Create the application's one-time token
+   and redeem it to get its base64 config.
+3. Put that config in the macOS Keychain, or in an environment variable.
+4. In `config.toml`, set the store and the folder. See [`config.example.toml`](config.example.toml).
+
+```toml
+[store]
+kind = "keeper"
+
+[keeper]
+shared_folder = "<shared folder UID>"
+config = { source = "keychain", account = "gondr", service = "keeper-ksm-config" }
+```
+
+- With Keeper, `[infisical]` is not needed, `.infisical.json` is ignored, and nothing contacts Infisical.
+- The folder `/repos/acme/api` in `dev` is the Keeper folder `dev/repos/acme/api` under `shared_folder`.
+  A key is a `login` record titled with the key name. Its value is the record's `password`.
+  `gondr set` creates missing folders and records.
+- Two records with one key title in a folder stop the command. Delete one in Keeper.
+- `gondr run` runs the command directly with the folder's keys in its environment. The command does not get the KSM config.
+- `gondr need`, `gondr agent` and `gondr onboard` do not work with Keeper. Keeper shares records by folder access,
+  and Agent Vault has no Keeper credential store. `ls`, `where`, `set`, `run`, `status`, `find`, `check` and `token mint` work.
+- An SDK error prints `gondr: keeper <operation> failed: <error type>`, never the error text.
 
 ## Folder layout
 

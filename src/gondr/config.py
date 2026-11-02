@@ -40,7 +40,7 @@ class Boundary:
 
 @dataclass
 class Config:
-    url: str
+    url: str | None
     project: str | None
     environments: list
     default_environment: str
@@ -55,6 +55,24 @@ class Config:
     boundaries: list
     folders: dict
     factory: dict
+    store: str = "infisical"
+    keeper: dict | None = None
+
+
+def keeper_settings(raw, path):
+    """The validated [keeper] table. The KSM config is read later, only by a command that needs it."""
+    kp = dict(raw.get("keeper") or {})
+    if not kp.get("shared_folder"):
+        die(f"{path} has no keeper.shared_folder", "set it to the UID of the shared folder the KSM application can access")
+    c = kp.get("config")
+    if not isinstance(c, dict) or c.get("source") not in ("keychain", "env"):
+        die(f"{path} needs keeper.config with source = \"keychain\" or \"env\"",
+            'keeper.config = { source = "keychain", account = "gondr", service = "keeper-ksm-config" }')
+    needed = ("account", "service") if c["source"] == "keychain" else ("name",)
+    missing = [k for k in needed if not c.get(k)]
+    if missing:
+        die(f"{path}: keeper.config with source = \"{c['source']}\" needs {', '.join(missing)}")
+    return kp
 
 
 def load():
@@ -65,8 +83,13 @@ def load():
         die(f"no config file at {path}", "copy config.example.toml there, or set GONDR_CONFIG")
     except (OSError, tomllib.TOMLDecodeError) as e:
         die(f"cannot read {path}: {e}")
-    inf = raw.get("infisical") or {}
-    if not inf.get("url"):
+    store = (raw.get("store") or {}).get("kind", "infisical")
+    if store not in ("infisical", "keeper"):
+        die(f"{path}: store.kind must be \"infisical\" or \"keeper\", not {store!r}")
+    keeper = keeper_settings(raw, path) if store == "keeper" else None
+    # The environments belong to the active store's table.
+    inf = keeper if keeper else raw.get("infisical") or {}
+    if not keeper and not inf.get("url"):
         die(f"{path} has no infisical.url")
     layout = raw.get("layout") or {}
     av = raw.get("agent_vault")
@@ -75,7 +98,7 @@ def load():
               "references_folder": "agent-vault", **av}
         av["binary"] = os.path.expanduser(av["binary"])
     return Config(
-        url=inf["url"].rstrip("/"),
+        url=inf["url"].rstrip("/") if not keeper else None,
         project=inf.get("project"),
         environments=inf.get("environments", ["dev", "staging", "prod"]),
         default_environment=inf.get("default_environment", "dev"),
@@ -94,6 +117,8 @@ def load():
         folders={expand(d): "/" + f.strip("/") for d, f in (raw.get("folders") or {}).items()},
         factory={"binary": os.path.expanduser((raw.get("factory") or {}).get(
             "binary", "~/.local/share/gondr/gondr-factory"))},
+        store=store,
+        keeper=keeper,
     )
 
 
@@ -112,9 +137,11 @@ class Scope:
         self.cfg = cfg
         self.cwd = Path.cwd().resolve()
         common = git("rev-parse", "--path-format=absolute", "--git-common-dir")
-        # The main checkout, also from a linked worktree. Outside Git: the nearest .infisical.json.
+        # The main checkout, also from a linked worktree. Outside Git: the nearest .infisical.json
+        # (Keeper ignores that file).
         self.root = common.resolve().parent if common else next(
-            (d for d in [self.cwd, *self.cwd.parents] if (d / ".infisical.json").exists()), None)
+            (d for d in [self.cwd, *self.cwd.parents]
+             if cfg.store == "infisical" and (d / ".infisical.json").exists()), None)
 
     def inside(self, b):
         return self.cwd.is_relative_to(b.dir) or bool(self.root and self.root.is_relative_to(b.dir))

@@ -1,4 +1,19 @@
 # gondr config. Copy to ~/.config/gondr/config.toml and edit.
+
+# The secret store: "infisical" (default) or "keeper". Keeper needs `pip install 'gondr[keeper]'`.
+# With "keeper", gondr needs no [infisical] table and ignores .infisical.json; use [keeper] below.
+# [store]
+# kind = "keeper"
+#
+# [keeper]
+# shared_folder = "<shared folder UID>"      # the folder the KSM application can access
+# environments = ["dev", "staging", "prod"]  # default; each is a folder under shared_folder
+# default_environment = "dev"
+# warn_environments = ["prod"]
+# The KSM config is a base64 string. gondr reads it into memory and never writes it to a file.
+# config = { source = "keychain", account = "gondr", service = "keeper-ksm-config" }
+# config = { source = "env", name = "KSM_CONFIG" }
+
 [infisical]
 # EU cloud. US cloud: https://app.infisical.com. Or your self-hosted URL.
 url = "https://eu.infisical.com"

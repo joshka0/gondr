@@ -64,7 +64,14 @@ def nearest_vault(scope):
     return None
 
 
+def keeper_refusal(cfg):
+    if cfg.store == "keeper":
+        die("Agent Vault has no Keeper credential store, so agent and onboard do not work with Keeper",
+            'use `gondr run` for env vars, or set [store] kind = "infisical"')
+
+
 def cmd_agent(cfg, scope, args):
+    keeper_refusal(cfg)
     av = settings(cfg)
     vault = None
     # Only leading options belong to gondr; everything from the command on belongs to the agent.
@@ -163,6 +170,7 @@ def hashes(cfg, client, env, path, names):
 
 
 def cmd_onboard(cfg, scope, args):
+    keeper_refusal(cfg)
     av = settings(cfg)
     opts, rest = parse(args, ("--admin-home", "--repo-dir", "--vault", "--services"), ("--dry-run",))
     if len(rest) != 1:
