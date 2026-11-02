@@ -36,7 +36,7 @@ only Touch ID.
 ## Add a parent credential
 
 Run these in your own terminal. Each asks for the secret with echo off, then
-for Touch ID.
+for Touch ID (or a YubiKey touch with `--yubikey`, below).
 
 ```sh
 gondr token import planetscale --org <org>
@@ -66,6 +66,48 @@ gondr token import github --app <label> --app-id <id> --key-file <path.pem>
   may carry, plus the scopes `exec tailscale` may ask for (for example
   `policy_file` and `devices:core`). Import asks for the client ID, then the
   `tskey-client-` secret.
+
+## Approve with a YubiKey instead of Touch ID
+
+A parent imported with `--yubikey` is sealed to a key on your YubiKey. The
+Keychain then holds only ciphertext, and every use of that parent needs a
+touch on the YubiKey in place of Touch ID. The YubiKey enforces the touch: no
+touch, no parent. Parents imported without the flag keep Touch ID.
+
+You need a YubiKey with PIV (the YubiKey 5 series). Set it up once with
+[`ykman`](https://docs.yubico.com/software/yubikey/tools/ykman/) and OpenSSL 3
+or later. The key needs a touch and no PIN, as Touch ID does. The certificate
+only tells macOS which key to use, so a throwaway key signs it:
+
+```sh
+ykman piv keys generate --algorithm ECCP256 --pin-policy never --touch-policy always 9d gondr-token.pub
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out signer.key
+openssl x509 -new -subj "/CN=gondr-token" -force_pubkey gondr-token.pub -key signer.key -days 3650 -out gondr-token.crt
+ykman piv certificates import 9d gondr-token.crt
+rm signer.key
+```
+
+`ykman` asks for the PIV management key. If you never changed it, press Enter
+to use the default.
+
+Then unplug the YubiKey and plug it in again. macOS reads the certificate
+when the key is plugged in, so until then it encrypts to the old public key,
+and every import fails with `ECIES: Failed to aes-gcm decrypt data`.
+
+Then import each parent again with the flag, for example:
+
+```sh
+gondr token import hetzner --project <label> --yubikey
+```
+
+- Import seals the parent, opens it once on the YubiKey to prove it works,
+  and stores it only after that touch.
+- `check` prints `sealed=yubikey` or `sealed=none`.
+- A sealed parent cannot go back to Touch ID: import it with `--yubikey`
+  again, or delete the Keychain item first.
+- Keep one YubiKey with a `gondr-token` certificate connected. If you lose the
+  YubiKey, its sealed parents are lost: rotate them at the provider.
+- The Cloudflare parent has no `import` command, so it stays on Touch ID.
 
 ## Approval prompt
 

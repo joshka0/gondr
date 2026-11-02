@@ -9,7 +9,8 @@ enum FactoryError: Error, CustomStringConvertible {
 }
 
 private let usage = """
-Usage (mint, revoke and exec also need --reason "<why>", before any --):
+Usage (mint, revoke and exec also need --reason "<why>", before any --;
+import takes --yubikey to seal the parent to a YubiKey, which then approves each use with a touch):
   gondr token mint cloudflare <options>
   gondr token revoke cloudflare --name <token-name> --account-id <id>
   gondr token mint planetscale <options>
@@ -53,11 +54,13 @@ struct InfraTokenFactory {
         let values = Array(CommandLine.arguments.dropFirst())
         do {
             guard values.count >= 2 else { throw FactoryError.message(usage) }
-            let (rest, reason) = try takeReason(Array(values.dropFirst(2)))
+            let (withoutReason, reason) = try takeReason(Array(values.dropFirst(2)))
             guard reason != nil || !["mint", "revoke", "exec", "create"].contains(values[0]) else {
                 throw FactoryError.message(#"\#(values[0]) needs --reason "<why you need it>""#)
             }
+            let (rest, seal) = try takeYubiKey(withoutReason, verb: values[0])
             Request.reason = reason
+            Request.sealWithYubiKey = seal
             switch (values[0], values[1]) {
             case ("mint", "cloudflare"): try await Cloudflare.mint(rest)
             case ("revoke", "cloudflare"): try await Cloudflare.revoke(rest)

@@ -103,7 +103,7 @@ enum Tailscale {
         guard secret.starts(with: Data("tskey-client-".utf8)) else {
             throw FactoryError.message("The second value must be the client secret, which starts with tskey-client-")
         }
-        try await requireUserApproval(action: "store the Tailscale OAuth client for \(tailnet) in Keychain.")
+        try await requireUserApproval(parent: parent(tailnet), action: "store the Tailscale OAuth client for \(tailnet) in Keychain.")
         try parent(tailnet).write(id + Data(":".utf8) + secret)
         print("import=complete")
         print("keychain_service=\(keychainPrefix).tailscale")
@@ -144,7 +144,7 @@ enum Tailscale {
         print("  Expires: \(iso8601(Date().addingTimeInterval(expiresIn)))")
         print("  Destination: \(destination.label(secret))")
         try await requireUserApproval(
-            action: "create Tailscale auth key \(name) (\(tags.joined(separator: ", "))) in \(tailnet) and store it as \(secret)."
+            parent: parent(tailnet), action: "create Tailscale auth key \(name) (\(tags.joined(separator: ", "))) in \(tailnet) and store it as \(secret)."
         )
         let token = try await accessToken(tailnet, tags: tags)
 
@@ -191,7 +191,7 @@ enum Tailscale {
         print("Tailscale auth key revocation")
         print("  Tailnet: \(tailnet)")
         print("  Name: \(name)")
-        try await requireUserApproval(action: "revoke the Tailscale auth key \(name) in \(tailnet).")
+        try await requireUserApproval(parent: parent(tailnet), action: "revoke the Tailscale auth key \(name) in \(tailnet).")
         let token = try await accessToken(tailnet, tags: [])
         let list: KeyList = try await api("tailnet/-/keys", token: token)
         var found: [KeyInfo] = []
@@ -230,7 +230,7 @@ enum Tailscale {
         print("  Scopes: \(scopes.joined(separator: ", "))")
         print("  Command: \(shown)")
         try await requireUserApproval(
-            action: "run with a Tailscale token for \(tailnet) (\(scopes.joined(separator: ", "))): \(shown.count > 160 ? String(shown.prefix(160)) + "…" : shown)"
+            parent: parent(tailnet), action: "run with a Tailscale token for \(tailnet) (\(scopes.joined(separator: ", "))): \(shown.count > 160 ? String(shown.prefix(160)) + "…" : shown)"
         )
         let token = try await accessToken(tailnet, scopes: scopes, tags: [])
         try execWithEnvironment(["TAILSCALE_API_KEY": token], command: command)

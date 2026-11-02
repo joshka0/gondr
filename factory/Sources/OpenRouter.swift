@@ -110,7 +110,7 @@ enum OpenRouter {
         let account = try validAccount(try options.required("--account"))
         print("OpenRouter key inventory")
         print("  Account: \(account)")
-        try await requireUserApproval(action: "list the OpenRouter workspaces and keys of \(account) (names, limits and usage only).")
+        try await requireUserApproval(parent: parent(account), action: "list the OpenRouter workspaces and keys of \(account) (names, limits and usage only).")
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
         func money(_ value: Double?) -> String { value.map { String(format: "%.2f", $0) } ?? "none" }
@@ -156,7 +156,7 @@ enum OpenRouter {
         print("  Workspace: \(slug) (\(name))")
         print("  Monthly budget: \(budget.map { String(format: "$%.2f", $0) } ?? "none")")
         try await requireUserApproval(
-            action: "create the OpenRouter workspace \(slug)\(budget.map { String(format: " with a $%.2f monthly budget", $0) } ?? "")."
+            parent: parent(account), action: "create the OpenRouter workspace \(slug)\(budget.map { String(format: " with a $%.2f monthly budget", $0) } ?? "")."
         )
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
@@ -184,7 +184,7 @@ enum OpenRouter {
         print("OpenRouter workspace deletion")
         print("  Account: \(account)")
         print("  Workspace: \(slug)")
-        try await requireUserApproval(action: "delete the empty OpenRouter workspace \(slug).")
+        try await requireUserApproval(parent: parent(account), action: "delete the empty OpenRouter workspace \(slug).")
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
         let space = try await workspace(slug, management)
@@ -215,7 +215,7 @@ enum OpenRouter {
         guard key.starts(with: Data("sk-or-".utf8)) else {
             throw FactoryError.message("An OpenRouter key starts with sk-or-")
         }
-        try await requireUserApproval(action: "store the OpenRouter management key for \(account) in Keychain.")
+        try await requireUserApproval(parent: parent(account), action: "store the OpenRouter management key for \(account) in Keychain.")
         try parent(account).write(key)
         print("import=complete")
         print("keychain_service=\(keychainPrefix).openrouter")
@@ -259,7 +259,7 @@ enum OpenRouter {
         print("  Expires: \(expiresAt ?? "never")")
         print("  Destination: \(destination.label(secret))")
         try await requireUserApproval(
-            action: "create OpenRouter key \(name) in workspace \(workspaceSlug) with a $\(limitText) \(reset) limit, and store it as \(secret)."
+            parent: parent(account), action: "create OpenRouter key \(name) in workspace \(workspaceSlug) with a $\(limitText) \(reset) limit, and store it as \(secret)."
         )
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }
@@ -308,7 +308,7 @@ enum OpenRouter {
         print("  Account: \(account)")
         if let name { print("  Name: \(name)") } else { print("  Keys: \(hashes.count) by hash") }
         try await requireUserApproval(
-            action: name.map { "delete the OpenRouter key \($0)." } ?? "delete \(hashes.count) OpenRouter keys by hash."
+            parent: parent(account), action: name.map { "delete the OpenRouter key \($0)." } ?? "delete \(hashes.count) OpenRouter keys by hash."
         )
         var (data, management) = try readParent(account)
         defer { data.resetBytes(in: 0..<data.count) }

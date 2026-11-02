@@ -8,7 +8,7 @@ func runWithSecret(_ item: KeychainItem, env: String, label: String, command: [S
     print("  Credential: \(label) as \(env)")
     print("  Command: \(shown)")
     try await requireUserApproval(
-        action: "run with \(label): \(shown.count > 200 ? String(shown.prefix(200)) + "…" : shown)"
+        parent: item, action: "run with \(label): \(shown.count > 200 ? String(shown.prefix(200)) + "…" : shown)"
     )
     var secret = try item.read()
     let value = String(decoding: secret, as: UTF8.self)
