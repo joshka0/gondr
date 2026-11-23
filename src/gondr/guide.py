@@ -6,7 +6,7 @@ from pathlib import Path
 from gondr.common import die, parse
 from gondr.config import git
 from gondr.discovery import KINDS, Keys, vault_view
-from gondr.infisical import KEY, Client, check_env
+from gondr.infisical import KEY, check_env, connect
 
 EXAMPLES = (".env.example", ".env.sample", ".env.template")
 ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
@@ -19,7 +19,7 @@ def start(cfg, scope, args, flags=("--env",), switches=("--json",)):
     opts, rest = parse(args, flags, switches)
     env = check_env(cfg, opts.get("env", cfg.default_environment))
     folder = scope.folder()
-    return opts, rest, env, folder, Client(cfg, scope.project()).login()
+    return opts, rest, env, folder, connect(cfg, scope)
 
 
 def cmd_status(cfg, scope, args):
@@ -36,7 +36,10 @@ def cmd_status(cfg, scope, args):
         return
     print(f"repo: {scope.root}")
     print(f"boundary: {here.name if here else '-'}")
-    print(f"infisical: {env}:{folder} (project {client.project})")
+    if cfg.store == "keeper":
+        print(f"keeper: {env}:{folder} (shared folder {client.project})")
+    else:
+        print(f"infisical: {env}:{folder} (project {client.project})")
     if listed is None:
         print("  folder does not exist: `gondr set` or `gondr need` creates it")
     else:

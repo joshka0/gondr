@@ -14,6 +14,9 @@ from gondr_gate.sandbox import CASES, Case
 
 # ---------------------------------------------------------------- main
 
+# Failure-list items the gate does not run, with the reason. Any other F01..F54 item needs a case.
+EXEMPT = {"F%02d" % i: "YubiKey factory item: needs the physical key; manual evidence only" for i in range(39, 45)}
+
 
 def redact_http(reqs):
     out = []
@@ -84,7 +87,7 @@ def main(description):
                                     ("  :: " + "; ".join(res["failures"][:3])) if res["failures"] else ""))
     statuses = [r["status"] for r in results]
     status = ("HARNESS_ERROR" if "HARNESS_ERROR" in statuses else "RED" if "RED" in statuses else "GREEN")
-    missing = sorted({"F%02d" % i for i in range(1, 39)} - covered)
+    missing = sorted({"F%02d" % i for i in range(1, 55)} - set(EXEMPT) - covered)
     if missing and not args.only:
         status = "HARNESS_ERROR"
         print("HARNESS_ERROR: failure-list items without a case: " + ", ".join(missing))
@@ -98,6 +101,7 @@ def main(description):
         "spec_sha256": hashlib.sha256((ROOT / "docs" / "spec.md").read_bytes()).hexdigest(),
         "counts": {s: statuses.count(s) for s in ("GREEN", "RED", "HARNESS_ERROR")},
         "failure_list_covered": sorted(covered),
+        "failure_list_exempt": EXEMPT,
         "boundary": "Synthetic black-box verification: stub executables, fake Infisical on 127.0.0.1, no live service.",
         "cases": results,
     }

@@ -284,6 +284,54 @@ A boundary keeps one set of secrets with one set of directories.
   create the vault on the `infisical` credential store if missing, grant `grant_agents`, add services,
   set `unmatched_host_policy=passthrough`, sync, and write `agent-vault.json` when `--repo-dir` is given.
 
+## Keeper store
+
+With `[store] kind = "keeper"`, the secret store is Keeper Secrets Manager (KSM) instead of Infisical.
+Every rule above about folders, keys, environments, boundaries and output applies, except where this
+section says otherwise.
+
+```toml
+[store]
+kind = "keeper"                            # "infisical" (default) or "keeper"
+
+[keeper]
+shared_folder = "<shared folder UID>"      # required: the folder the KSM application can access
+environments = ["dev", "staging", "prod"]   # default ["dev", "staging", "prod"]
+default_environment = "dev"                 # default "dev"
+warn_environments = ["prod"]                # default ["prod"]
+config = { source = "keychain", account = "gondr", service = "keeper-ksm-config" }
+# config = { source = "env", name = "KSM_CONFIG" }
+```
+
+- With `kind = "keeper"`, the `[infisical]` table is not required, and `.infisical.json` is ignored.
+- `config` is the base64 KSM application config (the output of a one-time token). gondr reads it from
+  the macOS Keychain (`security find-generic-password -a <account> -s <service> -w`) or from the named
+  environment variable, and passes it to the SDK in memory. It never writes it to a file.
+- The SDK is the optional package `keeper-secrets-manager-core`. If it is missing, any command that
+  needs the store exits 1 with a hint: `pip install 'gondr[keeper]'`. Commands that need no store
+  (`token` other than `mint`, `--help`) do not import it.
+- Mapping: the folder `<P>` in environment `<E>` is the Keeper folder chain `<E>/<segments of P>` under
+  `shared_folder`. A key `<K>` is a record of type `login` titled `<K>` in that folder; its value is the
+  record's `password` field. A record whose title does not match the key rule is not a key: `ls`,
+  `where` and `run` skip it.
+- Two records with the same key title in one folder: the command exits 1 and names the folder. No write.
+- `ls`: prints `<E>:<P>`, `keys (<n>): ...` and `folders: ...` as with Infisical, with no `import` lines.
+- `where <KEY>`: prints `<E>:<path> <KEY>` for each folder under `<E>` that holds the key, with no
+  "imported by" part. The boundary rules decide which folders count, as with Infisical.
+- `set <KEY>`: updates the `password` field of the existing record, or creates the record in the folder.
+  Missing folders are created parents first, each printed as `created folder <E>:<path>`. The value
+  goes only to the SDK, never into argv, a file or output.
+- `run -- <cmd...>`: execs `<cmd...>` with the inherited environment plus one variable per key of the
+  folder (`<K>=<password>`). A folder key replaces an inherited variable of the same name. No child
+  `infisical` process, and the store credentials are not in the command's environment.
+- `status`, `find` and `check` read the folder as `ls` does. They report no imports.
+- `need`: exit 1 with a hint that Keeper shares records by giving the KSM application access to a
+  folder, not by import.
+- `agent` and `onboard`: exit 1 with a hint that Agent Vault has no Keeper credential store.
+- `token mint` works unchanged: the factory stores each value with `gondr set`.
+- An SDK error prints `gondr: keeper <operation> failed: <error type>` and exits 1. It never prints the
+  error's text, a record or a value.
+
 ## Errors
 
 - Any HTTP error prints `gondr: <METHOD> <path without query> -> HTTP <code>` and exits 1.
@@ -349,4 +397,21 @@ A boundary keeps one set of secrets with one set of directories.
 - F42 A use of a sealed parent shows a Touch ID prompt, or a use of a plain parent skips Touch ID.
 - F43 An `import` without `--yubikey` replaces a sealed parent with plain text.
 - F44 `check` on a sealed parent omits `sealed=yubikey`, or prints the value.
+- F45 With `kind = "keeper"`, a command contacts Infisical, needs the `[infisical]` table, or reads
+  `.infisical.json`; with the default kind, a command imports the Keeper SDK.
+- F46 The KSM config is written to a file, put in argv or a child environment, read from Keychain when
+  `source = "env"`, or printed.
+- F47 A missing Keeper SDK gives a traceback instead of exit 1 with the `gondr[keeper]` hint.
+- F48 A key maps to the wrong Keeper folder (environment not the top folder, segments out of order, or
+  a folder outside `shared_folder`), or a record of another title or a non-key title is used as the key.
+- F49 `set` on Keeper leaves two records with the key's title, writes a field other than `password`,
+  creates a folder that exists or one outside the target path, or prints the value.
+- F50 Two records with one key title in a folder do not stop the command, or a write happens anyway.
+- F51 `run` on Keeper passes a value through argv or output, keeps an inherited variable over the
+  folder's value, passes the KSM config to the command, or changes `<cmd...>`.
+- F52 `ls`, `where`, `status`, `find` or `check` on Keeper prints a value or an import line, or `where`
+  reports a folder the boundary rules exclude.
+- F53 `need`, `agent` or `onboard` on Keeper exits 0 or changes anything.
+- F54 An SDK error prints its text, a record or a value, or gives a traceback; or a record the SDK logs
+  to its `ksm` logger reaches the output.
 - F30 `check` reads a value from the example file, exits 0 with a gap, or misreads `export NAME=` lines.

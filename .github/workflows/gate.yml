@@ -12,6 +12,8 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python3 tests/gate.py --report reports/gate.json
+      # The package must build and install with the Keeper extra; the gate runs from src/ and cannot see this.
+      - run: python3 -m pip install '.[keeper]' && gondr --help > /dev/null
       - if: always()
         uses: actions/upload-artifact@v7.0.2
         with:

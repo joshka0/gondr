@@ -75,7 +75,8 @@ class Keys:
         self.pool = (here.shared or here.prefix) if here else cfg.shared
         self.refs = f"{cfg.shared}/{refs}"
         self.folders = {}
-        for p, k in client.all_secret_paths(env):
+        # Keeper has no imports and no shared owners: a key reaches the folder or it is missing.
+        for p, k in client.all_secret_paths(env) if client.imports else []:
             # A folder outside this boundary, and Agent Vault reference folders, hold no owner.
             if scope.owner_boundary(p) == here and not p.endswith("/" + refs):
                 self.folders.setdefault(k, set()).add(p)

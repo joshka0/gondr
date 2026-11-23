@@ -60,6 +60,8 @@ def http(base, method, path, token=None, query=None, body=None, allow=()):
 
 
 class Client:
+    imports = True
+
     def __init__(self, cfg, project):
         self.cfg, self.project, self.token = cfg, project, None
 
@@ -149,6 +151,14 @@ class Client:
         return "updated"
 
 
+def connect(cfg, scope):
+    """Open the configured store: Keeper loads its SDK only here."""
+    if cfg.store == "keeper":
+        from gondr.keeper import Keeper
+        return Keeper(cfg).login()
+    return Client(cfg, scope.project()).login()
+
+
 def check_env(cfg, env):
     if env not in cfg.environments:
         die(f"unknown environment {env}", "use one of: " + " ".join(cfg.environments))
@@ -165,7 +175,8 @@ def check_publish_path(cfg, scope, path):
         die(f"{path} has an empty, '.' or '..' segment")
     bad = [seg for seg in path.split("/")[1:] if not FOLDER.match(seg)]
     if bad:
-        die(f"Infisical folder names allow only letters, digits, '-' and '_', not {bad[0]}",
+        store = "Keeper" if cfg.store == "keeper" else "Infisical"
+        die(f"{store} folder names allow only letters, digits, '-' and '_', not {bad[0]}",
             "map this repo to a valid folder in the [folders] config table, or pass --path")
 
 
@@ -181,7 +192,9 @@ def cmd_run(cfg, scope, args):
         die("nothing to run", "gondr run -- <command>")
     env = check_env(cfg, opts.get("env", cfg.default_environment))
     path = scope.folder(opts.get("path"))
-    client = Client(cfg, scope.project()).login()
+    client = connect(cfg, scope)
+    if cfg.store == "keeper":
+        client.run(env, path, cmd)
     child = {**os.environ, "INFISICAL_TOKEN": client.token}
     # The token authenticates the Infisical CLI only; `env -u` removes it before the command starts.
     argv = ["infisical", "run", f"--domain={cfg.url}/api", f"--projectId={client.project}",
@@ -196,7 +209,7 @@ def cmd_ls(cfg, scope, args):
     opts, rest = parse(args, ("--env", "--path"))
     env = check_env(cfg, opts.get("env", cfg.default_environment))
     path = scope.folder(rest[0] if rest else opts.get("path"))
-    client = Client(cfg, scope.project()).login()
+    client = connect(cfg, scope)
     own, imports = client.list_folder(env, path)
     sub = client.subfolders(env, path)
     print(f"{env}:{path}")
@@ -213,19 +226,27 @@ def cmd_where(cfg, scope, args):
         die("usage: gondr where <KEY>")
     key, env = rest[0], check_env(cfg, opts.get("env", cfg.default_environment))
     here = scope.boundary()
-    client = Client(cfg, scope.project()).login()
+    client = connect(cfg, scope)
     pairs = client.all_secret_paths(env)
-    owners = sorted({p for p, k in pairs if k == key and scope.owner_boundary(p) == here})
+    held = [p for p, k in pairs if k == key and scope.owner_boundary(p) == here]
+    owners = sorted(set(held))
+    if len(held) > len(owners):
+        dup = next(p for p in owners if held.count(p) > 1)
+        die(f"{env}:{dup} holds two records titled {key}", "delete one of them in Keeper")
     if not owners:
         die(f"{key} is not stored in {env}", "ask the operator to add it, or publish it with `gondr set`")
     # An importer can hold no keys of its own, so walk every folder, not only the owners.
-    users = client.importers(env, sorted({p for p, _ in pairs} | {"/", cfg.prefix} | client.all_folders(env)))
+    users = client.importers(env, sorted({p for p, _ in pairs} | {"/", cfg.prefix} | client.all_folders(env))) \
+        if client.imports else {}
     for o in owners:
         imp = users.get(o, [])
         print(f"{env}:{o} {key}" + (f"  imported by: {' '.join(sorted(imp))}" if imp else ""))
 
 
 def cmd_need(cfg, scope, args):
+    if cfg.store == "keeper":
+        die("need does not work with the Keeper store",
+            "Keeper shares records by giving the KSM application access to a folder, not by import")
     opts, rest = parse(args, ("--env", "--path", "--from"))
     if len(rest) != 1:
         die("usage: gondr need <KEY>")
@@ -235,7 +256,7 @@ def cmd_need(cfg, scope, args):
     if "from" in opts:
         scope.guard(scope.absolute(opts["from"]))
     check_publish_path(cfg, scope, path)
-    client = Client(cfg, scope.project()).login()
+    client = connect(cfg, scope)
     listed = client.list_folder_if_exists(env, path)
     own, imports = listed or ([], [])
     if key in own or any(key in keys for _, keys in imports):
@@ -278,7 +299,7 @@ def cmd_set(cfg, scope, args):
         die("the value is not UTF-8 text")
     if not value:
         die("the value is empty")
-    client = Client(cfg, scope.project()).login()
+    client = connect(cfg, scope)
     if client.list_folder_if_exists(env, path) is None:
         ensure_folder(client, env, path)
     print(f"{client.publish(env, path, key, value)} {key} in {env}:{path}")

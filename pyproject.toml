@@ -1,18 +1,22 @@
 [project]
 name = "gondr"
 dynamic = ["version"]
-description = "Let coding agents use secrets without seeing them: Infisical and Infisical Agent Vault"
+description = "Let coding agents use secrets without seeing them: Infisical, Infisical Agent Vault and Keeper"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = []
+
 keywords = ["infisical", "agent-vault", "secrets", "ai-agents", "cli"]
 classifiers = [
   "Environment :: Console",
   "Programming Language :: Python :: 3",
   "Topic :: Security",
 ]
+
+[project.optional-dependencies]
+keeper = ["keeper-secrets-manager-core==17.3.0"]
 
 [project.scripts]
 gondr = "gondr.cli:main"
