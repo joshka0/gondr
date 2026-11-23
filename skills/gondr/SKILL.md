@@ -16,6 +16,7 @@ The repo's README explains setup. `docs/cookbook.md` explains the pattern withou
   - `env`: run the command with `gondr run -- <cmd>`.
   - `import`: run `gondr need <KEY>`, then `gondr run`.
   - `repo-owned`, `not-mapped` or `missing`: stop that step. Give the operator the printed command.
+- A cloud token is missing, rejected (401, "Invalid access token") or too narrow: run `gondr token check <provider>` before you ask the operator. If the factory has the provider, mint a child ("Get a cloud credential" below). Ask only when it lacks the provider or the mint fails.
 - `gondr check`: which names in `.env.example` are missing.
 - `gondr ls [path]`, `gondr where <KEY>`: key names, imports and owner folders.
 - `gondr run -- <cmd>` injects the folder's secrets. Use `--env prod` only for a deploy or release step.
