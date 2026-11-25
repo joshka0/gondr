@@ -1,6 +1,7 @@
 """The config file, the repo folder, and boundaries."""
 import json
 import os
+import posixpath
 import subprocess
 import tomllib
 from dataclasses import dataclass, field
@@ -11,6 +12,18 @@ from gondr.common import die
 
 def expand(p):
     return Path(os.path.expanduser(str(p))).resolve()
+
+
+def normalize_path(path):
+    """Canonical POSIX form of an Infisical path (collapsing leading `//`, `.` and `..`)."""
+    norm = posixpath.normpath("/" + path.lstrip("/"))
+    return norm if norm.startswith("/") else "/" + norm
+
+
+def check_segments(path):
+    if path != "/" and any(seg in ("", ".", "..") for seg in path.split("/")[1:]):
+        die(f"{path} has an empty, '.' or '..' segment")
+    return path
 
 
 def config_path():
@@ -32,7 +45,8 @@ class Boundary:
     deny_agents: list = field(default_factory=list)
 
     def holds(self, path):
-        return path == self.prefix or path.startswith(self.prefix + "/")
+        norm = normalize_path(path)
+        return norm == self.prefix or norm.startswith(self.prefix + "/")
 
     def holds_vault(self, vault):
         return bool(self.vault_prefix) and vault.startswith(self.vault_prefix)
@@ -82,16 +96,18 @@ def load():
         warn_environments=inf.get("warn_environments", ["prod"]),
         credentials=inf.get("credentials") or {"source": "env"},
         repos_root=expand(layout.get("repos_root", "~/repos")),
-        prefix="/" + layout.get("prefix", "/repos").strip("/"),
-        shared="/" + layout.get("shared", "/shared").strip("/"),
-        service_roots=["/" + r.strip("/") for r in layout.get("service_roots", [])],
+        prefix=normalize_path("/" + layout.get("prefix", "/repos").strip("/")),
+        shared=normalize_path("/" + layout.get("shared", "/shared").strip("/")),
+        service_roots=[normalize_path("/" + r.strip("/")) for r in layout.get("service_roots", [])],
         agent_vault=av,
         services=raw.get("services") or {},
-        boundaries=[Boundary(name=b["name"], dir=expand(b["dir"]), prefix="/" + b["prefix"].strip("/"),
-                             shared=b.get("shared"), vault_prefix=b.get("vault_prefix"),
+        boundaries=[Boundary(name=b["name"], dir=expand(b["dir"]),
+                             prefix=normalize_path("/" + b["prefix"].strip("/")),
+                             shared=normalize_path("/" + b["shared"].strip("/")) if b.get("shared") else None,
+                             vault_prefix=b.get("vault_prefix"),
                              allow_vaults=b.get("allow_vaults", []), deny_agents=b.get("deny_agents", []))
                     for b in raw.get("boundary", [])],
-        folders={expand(d): "/" + f.strip("/") for d, f in (raw.get("folders") or {}).items()},
+        folders={expand(d): normalize_path("/" + f.strip("/")) for d, f in (raw.get("folders") or {}).items()},
         factory={"binary": os.path.expanduser((raw.get("factory") or {}).get(
             "binary", "~/.local/share/gondr/gondr-factory"))},
     )
@@ -127,18 +143,23 @@ class Scope:
 
     def guard(self, path):
         """A boundary's secrets stay with its directories, and its directories with its secrets."""
+        norm = normalize_path(path)
         for b in self.cfg.boundaries:
-            if b.holds(path) and not self.inside(b):
+            if b.holds(norm) and not self.inside(b):
                 die(f"{path} belongs to {b.name}; use it only from a directory under {b.dir}")
-            if self.inside(b) and not b.holds(path):
+            if self.inside(b) and not b.holds(norm):
                 die(f"a {b.name} directory reaches only {b.prefix}, not {path}")
-        return path
+        check_segments(path)
+        return norm
 
     @staticmethod
     def absolute(path):
         if not path.startswith("/"):
             die(f"{path} is not an absolute Infisical folder", f"pass /{path}")
-        return path.rstrip("/") or "/"
+        if path == "/":
+            return "/"
+        # Strip at most one trailing slash so trailing `//` is still caught as an empty segment.
+        return path[:-1] if path.endswith("/") and not path.endswith("//") else path
 
     def folder(self, explicit=None):
         if explicit:

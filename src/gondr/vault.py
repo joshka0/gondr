@@ -168,14 +168,25 @@ def cmd_onboard(cfg, scope, args):
     if len(rest) != 1:
         die("usage: gondr onboard <folder> --admin-home DIR [--repo-dir DIR] [--vault NAME] "
             "[--services a,b] [--dry-run]")
-    folder = scope.absolute(rest[0])
+    raw_folder = scope.absolute(rest[0])
+    b = scope.owner_boundary(raw_folder)
+    if b:
+        die(f"{raw_folder} belongs to {b.name}; onboard does not handle boundary folders")
+    folder = scope.guard(raw_folder)
     if not folder.startswith(cfg.prefix + "/"):
         die(f"{folder} is not a repo folder under {cfg.prefix}")
-    b = scope.owner_boundary(folder)
-    if b:
-        die(f"{folder} belongs to {b.name}; onboard does not handle boundary folders")
     env = cfg.default_environment
     vault = opts.get("vault") or folder[len(cfg.prefix) + 1:].replace("/", "-") + f"-{env}"
+    if reason := refusal(cfg, scope, vault):
+        die(reason)
+    for b in cfg.boundaries:
+        if b.holds_vault(vault):
+            die(f"vault {vault} belongs to {b.name}; onboard does not handle boundary vaults")
+    if opts.get("repo-dir"):
+        repo_dir = Path(os.path.expanduser(opts["repo-dir"])).resolve()
+        for b in cfg.boundaries:
+            if repo_dir.is_relative_to(b.dir):
+                die(f"{repo_dir} belongs to {b.name}; onboard does not handle boundary directories")
     admin_home = opts.get("admin-home") or os.environ.get("AGENT_VAULT_ADMIN_HOME")
     if not opts.get("dry-run") and not (admin_home and (Path(admin_home) / ".agent-vault/session.json").is_file()):
         die("--admin-home must be the HOME of an `agent-vault auth login` admin session")

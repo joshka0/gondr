@@ -14,9 +14,9 @@ from gondr.common import die, env_secret, keychain, parse
 
 # Infisical Cloud's Cloudflare rejects the default urllib agent (error 1010).
 UA = f"gondr/{__version__}"
-KEY = re.compile(r"^[A-Z][A-Z0-9_]*$")
+KEY = re.compile(r"^[A-Z][A-Z0-9_]*\Z")
 # Infisical accepts only these characters in a folder name.
-FOLDER = re.compile(r"^[A-Za-z0-9_-]+$")
+FOLDER = re.compile(r"^[A-Za-z0-9_-]+\Z")
 RETRIES = 5
 
 # Inside `agent-vault run`, SSL_CERT_FILE names only the broker CA, and Infisical bypasses the
@@ -232,8 +232,7 @@ def cmd_need(cfg, scope, args):
     key = rest[0]
     env = check_env(cfg, opts.get("env", cfg.default_environment))
     path = scope.folder(opts.get("path"))
-    if "from" in opts:
-        scope.guard(scope.absolute(opts["from"]))
+    from_path = scope.guard(scope.absolute(opts["from"])) if "from" in opts else None
     check_publish_path(cfg, scope, path)
     client = Client(cfg, scope.project()).login()
     listed = client.list_folder_if_exists(env, path)
@@ -245,7 +244,7 @@ def cmd_need(cfg, scope, args):
     pool = (here.shared or here.prefix) if here else cfg.shared
     refs = cfg.agent_vault["references_folder"] if cfg.agent_vault else "agent-vault"
     # <shared>/agent-vault is Agent Vault's input folder, not an owner to import from.
-    owners = [opts["from"].rstrip("/")] if "from" in opts else sorted(
+    owners = [from_path] if from_path is not None else sorted(
         {p for p, k in client.all_secret_paths(env)
          if k == key and (p == pool or p.startswith(pool + "/")) and p != f"{cfg.shared}/{refs}"})
     if not owners:
