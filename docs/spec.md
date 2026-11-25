@@ -85,6 +85,10 @@ deny_agents = ["some-agent"]
 - The project is `workspaceId` from `<repo root>/.infisical.json`, else `infisical.project`.
 - An explicit `--path` (or `ls <path>`, `--from`, the `onboard` folder) replaces the repo folder.
   It must start with `/`; a relative path stops the command with exit 1.
+- An explicit path with an empty, `.` or `..` segment (`/a//b`, `//a`, `/a/./b`, `/a/../b`, `/a//`)
+  stops the command with exit 1 before any Keychain read, login, HTTP request or exec. One trailing
+  `/` is allowed, and `/` alone is the root folder. When such a path resolves into a boundary, or out
+  of the current one, the stop is a boundary stop and names the boundary.
 
 ## Boundaries
 
@@ -269,6 +273,10 @@ A boundary keeps one set of secrets with one set of directories.
 
 - Default vault name: the folder below `layout.prefix`, with `/` replaced by `-`, plus `-<default_environment>`.
 - A folder in any boundary: exit 1.
+- From inside a boundary (working directory or repo root under `B.dir`), `onboard` stops with exit 1
+  for every folder. Outside every boundary it stops with exit 1 when the vault (`--vault` or the
+  default name) starts with a boundary's `vault_prefix`, or when `--repo-dir` is under a `B.dir`.
+  Each stop names the boundary and comes before any Keychain read, login, HTTP request or broker call.
 - For each service, the reference is the repo's own key unless its value hash equals the shared
   value's hash; then the shared reference wins. A service with neither: `skip <name>`.
 - `--admin-home DIR` (or `AGENT_VAULT_ADMIN_HOME`) is the `HOME` of an `agent-vault auth login` session.
@@ -349,4 +357,9 @@ A boundary keeps one set of secrets with one set of directories.
 - F42 A use of a sealed parent shows a Touch ID prompt, or a use of a plain parent skips Touch ID.
 - F43 An `import` without `--yubikey` replaces a sealed parent with plain text.
 - F44 `check` on a sealed parent omits `sealed=yubikey`, or prints the value.
+- F45 A path with an empty, `.` or `..` segment passes a boundary check by its text (into a boundary
+  from outside, or out of the current one), or reaches login, HTTP or exec from `ls`, `run`, `need`,
+  `set`, `token mint` or `onboard`.
+- F46 `onboard` runs from inside a boundary, on a vault that starts with a boundary's `vault_prefix`,
+  or with a `--repo-dir` under a boundary directory.
 - F30 `check` reads a value from the example file, exits 0 with a gap, or misreads `export NAME=` lines.

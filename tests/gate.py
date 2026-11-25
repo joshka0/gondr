@@ -31,6 +31,7 @@ CASE_MODULES = [
     "cases_check",
     "cases_token",
     "cases_service_roots",
+    "cases_path_segments",
 ]
 
 if __name__ == "__main__":
