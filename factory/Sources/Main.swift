@@ -48,7 +48,9 @@ import takes --yubikey to seal the parent to a YubiKey, which then approves each
   gondr token check github --app <label>
 """
 
+#if !FACTORY_TESTS
 @main
+#endif
 struct InfraTokenFactory {
     static func main() async {
         let values = Array(CommandLine.arguments.dropFirst())

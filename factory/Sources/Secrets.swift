@@ -1,30 +1,67 @@
 import Foundation
 import Security
 
+/// Explicit Keychain seal status. Any unexpected Keychain read error or
+/// empty/corrupt item throws instead of producing a state.
+enum SealedState: Equatable {
+    case sealed
+    case unsealed
+    case absent
+}
+
 /// A parent credential in the login keychain. The ACL trusts the binary
 /// that created the item; after a rebuild macOS asks once (Always Allow).
 /// An item imported with `--yubikey` holds ciphertext that only the YubiKey
 /// can open (`YubiKey`); `read` opens it, which needs a touch.
-struct KeychainItem {
+struct KeychainItem: Sendable {
     let service: String
     let account: String
+    private let storeOverride: (any KeychainStore)?
+    private let sealerOverride: (any CredentialSealer)?
 
-    private var query: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
+    init(
+        service: String,
+        account: String,
+        store: (any KeychainStore)? = nil,
+        sealer: (any CredentialSealer)? = nil
+    ) {
+        self.service = service
+        self.account = account
+        self.storeOverride = store
+        self.sealerOverride = sealer
     }
+
+    private var store: any KeychainStore { storeOverride ?? FactoryRuntime.current.keychain }
+    private var sealer: any CredentialSealer { sealerOverride ?? FactoryRuntime.current.sealer }
 
     /// The plain credential. A sealed item is opened on the YubiKey.
     func read() throws -> Data {
         let data = try stored()
-        return YubiKey.isSealed(data) ? try YubiKey.unseal(data) : data
+        return sealer.isSealed(data) ? try sealer.unseal(data) : data
     }
 
-    /// True when the item exists and is sealed to a YubiKey. Reads only the ciphertext.
-    var isSealed: Bool { (try? stored()).map(YubiKey.isSealed) ?? false }
+    /// Distinguishes sealed, unsealed, and absent items. Any Keychain read error
+    /// or empty/corrupt payload fails closed by throwing.
+    func sealedState() throws -> SealedState {
+        switch try store.readRaw(service: service, account: account) {
+        case .itemNotFound:
+            return .absent
+        case let .found(data):
+            guard !data.isEmpty else {
+                throw FactoryError.message("Keychain parent credential \(service)/\(account) is empty or corrupt")
+            }
+            return sealer.isSealed(data) ? .sealed : .unsealed
+        }
+    }
+
+    /// Fail-closed check: returns `true` when sealed, `false` ONLY when
+    /// confirmed unsealed or absent, and throws on any Keychain/corrupt error.
+    func isSealed() throws -> Bool {
+        switch try sealedState() {
+        case .sealed: return true
+        case .unsealed, .absent: return false
+        }
+    }
 
     /// Stores the credential, sealed when the request has `--yubikey`. A sealed
     /// item is opened once before it is stored, so a key that cannot open it
@@ -32,48 +69,34 @@ struct KeychainItem {
     /// replaced by a plain one.
     func write(_ data: Data) throws {
         guard Request.sealWithYubiKey else {
-            guard !isSealed else {
+            guard !(try isSealed()) else {
                 throw FactoryError.message("\(service)/\(account) is sealed to a YubiKey; import it again with --yubikey")
             }
-            return try store(data)
+            return try store.writeRaw(data, service: service, account: account)
         }
-        let sealed = try YubiKey.seal(data)
-        var opened = try YubiKey.unseal(sealed)
+        let sealed = try sealer.seal(data)
+        var opened = try sealer.unseal(sealed)
         defer { opened.resetBytes(in: 0..<opened.count) }
         guard opened == data else { throw FactoryError.message("The YubiKey opened a different value; nothing stored") }
-        try store(sealed)
+        try store.writeRaw(sealed, service: service, account: account)
     }
 
     private func stored() throws -> Data {
-        var lookup = query
-        lookup[kSecReturnData as String] = true
-        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(lookup as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data, !data.isEmpty else {
-            throw FactoryError.message("Keychain parent credential \(service)/\(account) is unavailable (status \(status))")
-        }
-        return data
-    }
-
-    private func store(_ data: Data) throws {
-        let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if update == errSecSuccess { return }
-        guard update == errSecItemNotFound else {
-            throw FactoryError.message("Keychain update failed (status \(update))")
-        }
-        var add = query
-        add[kSecValueData as String] = data
-        let status = SecItemAdd(add as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw FactoryError.message("Keychain add failed (status \(status))")
+        switch try store.readRaw(service: service, account: account) {
+        case .itemNotFound:
+            throw FactoryError.message("Keychain parent credential \(service)/\(account) is unavailable (status \(errSecItemNotFound))")
+        case let .found(data):
+            guard !data.isEmpty else {
+                throw FactoryError.message("Keychain parent credential \(service)/\(account) is empty or corrupt")
+            }
+            return data
         }
     }
 
     /// Reads the item after approval and reports presence only.
     func check() async throws {
         try await requireUserApproval(parent: self, action: "check whether the \(service) parent credential is available.")
-        let sealed = isSealed
+        let sealed = try isSealed()
         var data = try read()
         let present = !data.isEmpty
         data.resetBytes(in: 0..<data.count)
@@ -100,7 +123,7 @@ func readSecretFromTerminal(prompt: String) throws -> Data {
 
 /// Where a minted secret goes: the Infisical folder that `gondr token mint` resolved and checked
 /// against the repo's boundary. The factory stores each value with `gondr set`, which reads it from stdin.
-struct SecretDestination {
+struct SecretDestination: SecretDestinationStore {
     let environment: String
     let path: String
     let gondr: String
@@ -129,10 +152,20 @@ struct SecretDestination {
         process.arguments = ["set", secret, "--env", environment, "--path", path]
         process.standardInput = input
         process.standardOutput = FileHandle.nullDevice
+        let previousSigPipe = signal(SIGPIPE, SIG_IGN)
+        defer { signal(SIGPIPE, previousSigPipe) }
         try process.run()
-        input.fileHandleForWriting.write(Data(value.utf8))
-        try input.fileHandleForWriting.close()
+        var writeError: Error?
+        do {
+            try input.fileHandleForWriting.write(contentsOf: Data(value.utf8))
+        } catch {
+            writeError = error
+        }
+        try? input.fileHandleForWriting.close()
         process.waitUntilExit()
+        if let writeError {
+            throw FactoryError.message("gondr set \(secret) write failed (exit \(process.terminationStatus)): \(writeError)")
+        }
         guard process.terminationStatus == 0 else {
             throw FactoryError.message("gondr set \(secret) exited \(process.terminationStatus)")
         }

@@ -124,7 +124,7 @@ enum Tailscale {
         guard let expiresIn = try parseExpiry(try options.required("--expires-in")), expiresIn <= 90 * 86400 else {
             throw FactoryError.message("Tailscale auth keys need --expires-in of 90d or less")
         }
-        let destination = try SecretDestination(options)
+        let destination = try FactoryRuntime.current.destinations.make(options: options)
         let secret = try options.required("--secret")
         guard matches(name, "^[A-Za-z0-9 -]{1,50}$"), isSecretName(secret) else {
             throw FactoryError.message("--name takes up to 50 letters, digits, hyphens, or spaces")
@@ -141,7 +141,7 @@ enum Tailscale {
         print("  Name: \(name)")
         print("  Tags: \(tags.joined(separator: ", "))")
         print("  Options: \(with.isEmpty ? "single-use" : with.sorted().joined(separator: ", "))")
-        print("  Expires: \(iso8601(Date().addingTimeInterval(expiresIn)))")
+        print("  Expires: \(iso8601(FactoryRuntime.current.clock.now().addingTimeInterval(expiresIn)))")
         print("  Destination: \(destination.label(secret))")
         try await requireUserApproval(
             parent: parent(tailnet), action: "create Tailscale auth key \(name) (\(tags.joined(separator: ", "))) in \(tailnet) and store it as \(secret)."
@@ -161,17 +161,22 @@ enum Tailscale {
         ]
         let created: CreatedKey = try await api("tailnet/-/keys", method: "POST", token: token,
                                                 body: try JSONSerialization.data(withJSONObject: body))
-        do {
-            // Read the key back: it must exist with exactly the requested tags.
-            let info: KeyInfo = try await api("tailnet/-/keys/\(created.id)", token: token)
-            guard Set(info.capabilities?.devices?.create?.tags ?? []) == Set(tags) else {
-                throw FactoryError.message("The key's tags differ from the request")
+        try await withMintRollback(
+            resourceKind: "Tailscale auth key",
+            resourceID: created.id,
+            redact: [created.key, token],
+            work: {
+                // Read the key back: it must exist with exactly the requested tags.
+                let info: KeyInfo = try await api("tailnet/-/keys/\(created.id)", token: token)
+                guard Set(info.capabilities?.devices?.create?.tags ?? []) == Set(tags) else {
+                    throw FactoryError.message("The key's tags differ from the request")
+                }
+                try destination.store(created.key, as: secret)
+            },
+            revoke: {
+                let _: Ignored? = try await api("tailnet/-/keys/\(created.id)", method: "DELETE", token: token)
             }
-            try destination.store(created.key, as: secret)
-        } catch {
-            let _: Ignored? = try? await api("tailnet/-/keys/\(created.id)", method: "DELETE", token: token)
-            throw FactoryError.message("Auth key was revoked because its check or vault write failed: \(error)")
-        }
+        )
 
         print("mint=complete")
         print("key_verified=true")
@@ -250,7 +255,7 @@ enum Tailscale {
     /// Decodes `T` from a 2xx body. An empty body decodes to nil when `T` is
     /// optional.
     private static func send<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await FactoryRuntime.current.http.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw FactoryError.message("Tailscale returned no HTTP response")
         }

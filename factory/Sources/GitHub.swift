@@ -136,7 +136,7 @@ enum GitHub {
         }
         let appID = String(decoding: stored[..<newline], as: UTF8.self)
         let key = try privateKey(fromPEM: Data(stored[stored.index(after: newline)...]))
-        let now = Int(Date().timeIntervalSince1970)
+        let now = Int(FactoryRuntime.current.clock.now().timeIntervalSince1970)
         let header = base64URL(Data(#"{"alg":"RS256","typ":"JWT"}"#.utf8))
         let payload = base64URL(Data(#"{"iat":\#(now - 60),"exp":\#(now + 540),"iss":"\#(appID)"}"#.utf8))
         let signingInput = Data("\(header).\(payload)".utf8)
@@ -184,7 +184,7 @@ enum GitHub {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await FactoryRuntime.current.http.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw FactoryError.message("GitHub returned no HTTP response")
         }

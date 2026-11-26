@@ -93,18 +93,19 @@ enum Fly {
         guard let expiresIn = try parseExpiry(try options.required("--expires-in")), expiresIn <= 30 * 86400 else {
             throw FactoryError.message("Fly children cannot be revoked alone: give --expires-in of 30d or less")
         }
-        let destination = try SecretDestination(options)
+        let destination = try FactoryRuntime.current.destinations.make(options: options)
         let secret = try options.required("--secret")
         guard isSecretName(secret) else {
             throw FactoryError.message("One or more arguments have an invalid shape")
         }
 
-        let now = Int(Date().timeIntervalSince1970)
+        let now = Int(FactoryRuntime.current.clock.now().timeIntervalSince1970)
         let notAfter = now + Int(expiresIn)
+        let expiresText = iso8601(Date(timeIntervalSince1970: TimeInterval(notAfter)))
         print("Fly token request")
         print("  Org: \(org)")
         print("  App: \(app) (all actions; rest of org read-only)")
-        print("  Expires: \(iso8601(Date(timeIntervalSince1970: TimeInterval(notAfter)))) (cannot be revoked alone)")
+        print("  Expires: \(expiresText) (cannot be revoked alone)")
         print("  Destination: \(destination.label(secret))")
         try await requireUserApproval(
             parent: parent(org), action: "create a Fly token for app \(app) in \(org), valid \(Int(expiresIn / 3600))h and not revocable alone, and store it as \(secret)."
@@ -126,16 +127,23 @@ enum Fly {
                 "else": "r",
             ]],
         ]
-        let child = try attenuate(parent: auth, caveats: try JSONSerialization.data(withJSONObject: caveats))
+        let child = try FactoryRuntime.current.attenuateFly(auth, try JSONSerialization.data(withJSONObject: caveats))
 
-        // The child must read its own app.
-        let readBack: AppData = try await query(
-            "query($name: String!) { app(name: $name) { name } }", ["name": app], auth: child
-        )
-        guard readBack.app?.name == app else {
-            throw FactoryError.message("The child cannot read app \(app); it was not stored and expires on its own")
+        do {
+            // The child must read its own app.
+            let readBack: AppData = try await query(
+                "query($name: String!) { app(name: $name) { name } }", ["name": app], auth: child
+            )
+            guard readBack.app?.name == app else {
+                throw FactoryError.message("The child cannot read app \(app)")
+            }
+            try destination.store(child, as: secret)
+        } catch {
+            let safe = redactSecrets(String(describing: error), secrets: [child, auth])
+            throw FactoryError.message(
+                "Fly child token verification or vault storage failed: \(safe) (rollback=unsupported reason=fly attenuated tokens cannot be revoked individually; expires \(expiresText))"
+            )
         }
-        try destination.store(child, as: secret)
 
         print("mint=complete")
         print("derived_token_verified=true")
@@ -145,7 +153,7 @@ enum Fly {
 
     /// Runs `fly tokens attenuate` with the parent in its environment and the
     /// caveats on stdin, and returns the child as a `FlyV1 …` header value.
-    private static func attenuate(parent: String, caveats: Data) throws -> String {
+    static func liveAttenuate(parent: String, caveats: Data) throws -> String {
         let process = Process()
         let input = Pipe()
         let output = Pipe()
@@ -189,7 +197,7 @@ enum Fly {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["query": text, "variables": variables])
         request.setValue(auth, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await FactoryRuntime.current.http.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw FactoryError.message("Fly returned no HTTP response")
         }

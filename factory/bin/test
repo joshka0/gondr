@@ -1,0 +1,11 @@
+#!/bin/sh
+# Compile and run the Swift test suite for the gondr token factory (macOS).
+# Compiles into a temporary directory and never touches ~/.local/share/gondr,
+# Keychain, Touch ID, YubiKey, or the network.
+set -eu
+cd "$(dirname "$0")/.."
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/gondr-factory-test.XXXXXX")"
+trap 'rm -rf "$tmp"' EXIT
+printf 'let keychainPrefix = "test-gondr-token"\n' > "$tmp/KeychainPrefix.swift"
+xcrun swiftc -D FACTORY_TESTS -parse-as-library Sources/*.swift Tests/*.swift "$tmp/KeychainPrefix.swift" -o "$tmp/gondr-factory-tests"
+"$tmp/gondr-factory-tests"

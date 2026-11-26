@@ -107,7 +107,7 @@ enum GitLab {
         guard let expiresIn = try parseExpiry(try options.required("--expires-in")) else {
             throw FactoryError.message("Deploy tokens need a finite --expires-in")
         }
-        let destination = try SecretDestination(options)
+        let destination = try FactoryRuntime.current.destinations.make(options: options)
         let prefix = try options.required("--secret-prefix")
         let userSecret = "\(prefix)_USERNAME"
         let tokenSecret = "\(prefix)_TOKEN"
@@ -118,7 +118,7 @@ enum GitLab {
             throw FactoryError.message("--scope takes \(deployScopes.sorted().joined(separator: ", "))")
         }
 
-        let expiresAt = iso8601(Date().addingTimeInterval(expiresIn))
+        let expiresAt = iso8601(FactoryRuntime.current.clock.now().addingTimeInterval(expiresIn))
         print("GitLab deploy token request")
         print("  Project: \(project)")
         print("  Name: \(name)")
@@ -135,26 +135,31 @@ enum GitLab {
             "projects/\(projectRef(project))/deploy_tokens", method: "POST", token: pat,
             body: try JSONSerialization.data(withJSONObject: ["name": name, "scopes": scopes, "expires_at": expiresAt])
         )
-        do {
-            guard let value = created.token, !value.isEmpty else {
-                throw FactoryError.message("GitLab returned no token value")
+        try await withMintRollback(
+            resourceKind: "GitLab deploy token",
+            resourceID: String(created.id),
+            redact: [created.token ?? "", pat],
+            work: {
+                guard let value = created.token, !value.isEmpty else {
+                    throw FactoryError.message("GitLab returned no token value")
+                }
+                // Read the token back from the project's list: it must be active with the requested scopes.
+                let listed: [DeployToken] = try await request(
+                    "projects/\(projectRef(project))/deploy_tokens", query: [URLQueryItem(name: "active", value: "true")], token: pat
+                )
+                guard let found = listed.first(where: { $0.id == created.id }),
+                      Set(found.scopes ?? []) == Set(scopes) else {
+                    throw FactoryError.message("The deploy token is missing or its scopes differ")
+                }
+                try destination.store(created.username, as: userSecret)
+                try destination.store(value, as: tokenSecret)
+            },
+            revoke: {
+                let _: Ignored? = try await request(
+                    "projects/\(projectRef(project))/deploy_tokens/\(created.id)", method: "DELETE", token: pat
+                )
             }
-            // Read the token back from the project's list: it must be active with the requested scopes.
-            let listed: [DeployToken] = try await request(
-                "projects/\(projectRef(project))/deploy_tokens", query: [URLQueryItem(name: "active", value: "true")], token: pat
-            )
-            guard let found = listed.first(where: { $0.id == created.id }),
-                  Set(found.scopes ?? []) == Set(scopes) else {
-                throw FactoryError.message("The deploy token is missing or its scopes differ")
-            }
-            try destination.store(created.username, as: userSecret)
-            try destination.store(value, as: tokenSecret)
-        } catch {
-            let _: Ignored? = try? await request(
-                "projects/\(projectRef(project))/deploy_tokens/\(created.id)", method: "DELETE", token: pat
-            )
-            throw FactoryError.message("Deploy token was revoked because its check or vault write failed: \(error)")
-        }
+        )
 
         print("mint=complete")
         print("token_verified=true")
@@ -222,7 +227,7 @@ enum GitLab {
         request.httpBody = body
         request.setValue(token, forHTTPHeaderField: "PRIVATE-TOKEN")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await FactoryRuntime.current.http.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw FactoryError.message("GitLab returned no HTTP response")
         }

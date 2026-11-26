@@ -55,7 +55,7 @@ enum PlanetScale {
         var listRequest = URLRequest(url: apiBase.appending(path: "organizations"))
         listRequest.setValue(auth, forHTTPHeaderField: "Authorization")
         listRequest.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (listData, listResponse) = try await URLSession.shared.data(for: listRequest)
+        let (listData, listResponse) = try await FactoryRuntime.current.http.data(for: listRequest)
         print("organizations_http=\((listResponse as? HTTPURLResponse)?.statusCode ?? 0)")
         if let orgs = try? JSONDecoder().decode(DataList<NamedOrg>.self, from: listData) {
             print("visible_orgs=\(orgs.data.map(\.name).joined(separator: ","))")
@@ -64,7 +64,7 @@ enum PlanetScale {
             var request = URLRequest(url: apiBase.appending(path: path))
             request.setValue(auth, forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await FactoryRuntime.current.http.data(for: request)
             print("\(label)_http=\((response as? HTTPURLResponse)?.statusCode ?? 0)")
         }
     }
@@ -134,35 +134,40 @@ enum PlanetScale {
             "organizations/\(org)/service-tokens", method: "POST", auth: auth,
             body: try JSONSerialization.data(withJSONObject: body)
         )
-        do {
-            guard let token = created.token, !token.isEmpty else {
-                throw FactoryError.message("PlanetScale returned no token value")
-            }
-            if !grant.orgAccess.isEmpty {
-                let _: DataList<Access> = try await request(
-                    "organizations/\(org)/service-tokens/\(created.id)/access", method: "POST", auth: auth,
-                    body: try JSONSerialization.data(withJSONObject: ["access": grant.orgAccess])
+        return try await withMintRollback(
+            resourceKind: "PlanetScale service token",
+            resourceID: created.id,
+            redact: [created.token ?? "", auth],
+            work: {
+                guard let token = created.token, !token.isEmpty else {
+                    throw FactoryError.message("PlanetScale returned no token value")
+                }
+                if !grant.orgAccess.isEmpty {
+                    let _: DataList<Access> = try await request(
+                        "organizations/\(org)/service-tokens/\(created.id)/access", method: "POST", auth: auth,
+                        body: try JSONSerialization.data(withJSONObject: ["access": grant.orgAccess])
+                    )
+                }
+                if let database = grant.database {
+                    let _: DataList<Access> = try await request(
+                        "organizations/\(org)/service-tokens/\(created.id)/access", method: "POST", auth: auth,
+                        body: try JSONSerialization.data(withJSONObject: ["database": database, "access": grant.databaseAccess])
+                    )
+                }
+                // Read the grants back: every requested access must be present.
+                let granted: DataList<Access> = try await request(
+                    "organizations/\(org)/service-tokens/\(created.id)/access", auth: auth
                 )
+                let missing = Set(grant.all).subtracting(granted.data.map(\.access))
+                guard missing.isEmpty else {
+                    throw FactoryError.message("Grants missing after create: \(missing.sorted().joined(separator: ", "))")
+                }
+                return (created.id, token)
+            },
+            revoke: {
+                try await deleteChild(org: org, id: created.id, auth: auth)
             }
-            if let database = grant.database {
-                let _: DataList<Access> = try await request(
-                    "organizations/\(org)/service-tokens/\(created.id)/access", method: "POST", auth: auth,
-                    body: try JSONSerialization.data(withJSONObject: ["database": database, "access": grant.databaseAccess])
-                )
-            }
-            // Read the grants back: every requested access must be present.
-            let granted: DataList<Access> = try await request(
-                "organizations/\(org)/service-tokens/\(created.id)/access", auth: auth
-            )
-            let missing = Set(grant.all).subtracting(granted.data.map(\.access))
-            guard missing.isEmpty else {
-                throw FactoryError.message("Grants missing after create: \(missing.sorted().joined(separator: ", "))")
-            }
-            return (created.id, token)
-        } catch {
-            try? await deleteChild(org: org, id: created.id, auth: auth)
-            throw FactoryError.message("Derived token was deleted because a grant or check failed: \(error)")
-        }
+        )
     }
 
     private static func deleteChild(org: String, id: String, auth: String) async throws {
@@ -182,7 +187,7 @@ enum PlanetScale {
         let name = try options.required("--name")
         let expiresIn = try parseExpiry(try options.required("--expires-in"))
         let grant = try Grant(options)
-        let destination = try SecretDestination(options)
+        let destination = try FactoryRuntime.current.destinations.make(options: options)
         let prefix = try options.required("--secret-prefix")
         let idSecret = "\(prefix)_SERVICE_TOKEN_ID"
         let tokenSecret = "\(prefix)_SERVICE_TOKEN"
@@ -194,7 +199,7 @@ enum PlanetScale {
         print("  Org: \(org)")
         print("  Name: \(name)")
         grant.printLines()
-        print("  Expires: \(expiresIn.map { iso8601(Date().addingTimeInterval($0)) } ?? "never")")
+        print("  Expires: \(expiresIn.map { iso8601(FactoryRuntime.current.clock.now().addingTimeInterval($0)) } ?? "never")")
         print("  Destination: \(destination.label(idSecret)), \(destination.label(tokenSecret))")
         try await requireUserApproval(
             parent: parent(org), action: "create PlanetScale token \(name) in \(org) (\(grant.all.joined(separator: ", "))) and store it as \(prefix)_SERVICE_TOKEN."
@@ -204,13 +209,18 @@ enum PlanetScale {
         let auth = String(decoding: parentData, as: UTF8.self)
 
         let child = try await createChild(org: org, name: name, ttl: expiresIn.map { Int($0) }, grant: grant, auth: auth)
-        do {
-            try destination.store(child.id, as: idSecret)
-            try destination.store(child.token, as: tokenSecret)
-        } catch {
-            try? await deleteChild(org: org, id: child.id, auth: auth)
-            throw FactoryError.message("Derived token was deleted because the vault write failed: \(error)")
-        }
+        try await withMintRollback(
+            resourceKind: "PlanetScale service token",
+            resourceID: child.id,
+            redact: [child.token, auth],
+            work: {
+                try destination.store(child.id, as: idSecret)
+                try destination.store(child.token, as: tokenSecret)
+            },
+            revoke: {
+                try await deleteChild(org: org, id: child.id, auth: auth)
+            }
+        )
 
         print("mint=complete")
         print("grants_verified=true")
@@ -240,7 +250,7 @@ enum PlanetScale {
         let grant = try Grant(options)
         let command = Array(arguments[(separator + 1)...])
         let shown = command.joined(separator: " ")
-        let name = "factory-exec-\(Int(Date().timeIntervalSince1970))-\(getpid())"
+        let name = "factory-exec-\(Int(FactoryRuntime.current.clock.now().timeIntervalSince1970))-\(getpid())"
 
         print("Command request")
         print("  Credential: PlanetScale child token in \(org), deleted when the command exits (TTL \(Int(expiresIn / 3600))h)")
@@ -254,22 +264,27 @@ enum PlanetScale {
         let auth = String(decoding: parentData, as: UTF8.self)
 
         let child = try await createChild(org: org, name: name, ttl: Int(expiresIn), grant: grant, auth: auth)
-        let status: Int32
-        do {
-            status = try runChild(command, environment: [
-                "PLANETSCALE_SERVICE_TOKEN_ID": child.id,
-                "PLANETSCALE_SERVICE_TOKEN": child.token,
-                "PLANETSCALE_ORG": org,
-            ])
-        } catch {
-            try? await deleteChild(org: org, id: child.id, auth: auth)
-            throw error
-        }
+        let status: Int32 = try await withMintRollback(
+            resourceKind: "PlanetScale exec token",
+            resourceID: child.id,
+            redact: [child.token, auth],
+            work: {
+                try runChild(command, environment: [
+                    "PLANETSCALE_SERVICE_TOKEN_ID": child.id,
+                    "PLANETSCALE_SERVICE_TOKEN": child.token,
+                    "PLANETSCALE_ORG": org,
+                ])
+            },
+            revoke: {
+                try await deleteChild(org: org, id: child.id, auth: auth)
+            }
+        )
         do {
             try await deleteChild(org: org, id: child.id, auth: auth)
             FileHandle.standardError.write(Data("planetscale_child=deleted\n".utf8))
         } catch {
-            FileHandle.standardError.write(Data("planetscale_child=delete_failed name=\(name) (its TTL still ends it): \(error)\n".utf8))
+            let safe = redactSecrets(String(describing: error), secrets: [child.token, auth])
+            FileHandle.standardError.write(Data("planetscale_child=delete_failed name=\(name) orphan_id=\(child.id) (its TTL still ends it): \(safe)\n".utf8))
         }
         exit(status)
     }
@@ -327,7 +342,7 @@ enum PlanetScale {
         request.setValue(auth, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await FactoryRuntime.current.http.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw FactoryError.message("PlanetScale returned no HTTP response")
         }

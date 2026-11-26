@@ -165,9 +165,19 @@ enum OpenRouter {
             body: try JSONSerialization.data(withJSONObject: ["name": name, "slug": slug])
         )
         if let budget {
-            let _: Ignored = try await request(
-                "workspaces/\(created.data.id)/budgets/monthly", method: "PUT", token: management,
-                body: try JSONSerialization.data(withJSONObject: ["limit_usd": budget, "include_byok_in_budgets": true])
+            try await withMintRollback(
+                resourceKind: "OpenRouter workspace",
+                resourceID: created.data.id,
+                redact: [management],
+                work: {
+                    let _: Ignored = try await request(
+                        "workspaces/\(created.data.id)/budgets/monthly", method: "PUT", token: management,
+                        body: try JSONSerialization.data(withJSONObject: ["limit_usd": budget, "include_byok_in_budgets": true])
+                    )
+                },
+                revoke: {
+                    let _: Ignored? = try await request("workspaces/\(created.data.id)", method: "DELETE", token: management)
+                }
             )
         }
         print("workspace=created slug=\(created.data.slug) id=\(created.data.id)")
@@ -243,13 +253,13 @@ enum OpenRouter {
         guard expiresIn != nil || reset != "never" else {
             throw FactoryError.message("A key with --expires-in never needs --reset daily, weekly, or monthly")
         }
-        let destination = try SecretDestination(options)
+        let destination = try FactoryRuntime.current.destinations.make(options: options)
         let secret = try options.required("--secret")
         guard name.count <= 120, isSecretName(secret) else {
             throw FactoryError.message("One or more arguments have an invalid shape")
         }
 
-        let expiresAt = expiresIn.map { iso8601(Date().addingTimeInterval($0)) }
+        let expiresAt = expiresIn.map { iso8601(FactoryRuntime.current.clock.now().addingTimeInterval($0)) }
         let limitText = String(format: "%.2f", limit)
         print("OpenRouter key request")
         print("  Account: \(account)")
@@ -273,17 +283,22 @@ enum OpenRouter {
         let created: CreatedKey = try await request(
             "keys", method: "POST", token: management, body: try JSONSerialization.data(withJSONObject: body)
         )
-        do {
-            // The child reads its own limit back.
-            let current: CurrentKey = try await request("key", token: created.key)
-            guard let granted = current.data.limit, abs(granted - limit) < 0.005 else {
-                throw FactoryError.message("The key's limit differs from the request")
+        try await withMintRollback(
+            resourceKind: "OpenRouter key",
+            resourceID: created.data.hash,
+            redact: [created.key, management],
+            work: {
+                // The child reads its own limit back.
+                let current: CurrentKey = try await request("key", token: created.key)
+                guard let granted = current.data.limit, abs(granted - limit) < 0.005 else {
+                    throw FactoryError.message("The key's limit differs from the request")
+                }
+                try destination.store(created.key, as: secret)
+            },
+            revoke: {
+                let _: Ignored? = try await request("keys/\(created.data.hash)", method: "DELETE", token: management)
             }
-            try destination.store(created.key, as: secret)
-        } catch {
-            let _: Ignored? = try? await request("keys/\(created.data.hash)", method: "DELETE", token: management)
-            throw FactoryError.message("Key was deleted because its check or vault write failed: \(error)")
-        }
+        )
 
         print("mint=complete")
         print("key_verified=true")
@@ -352,7 +367,7 @@ enum OpenRouter {
         request.httpBody = body
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await FactoryRuntime.current.http.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw FactoryError.message("OpenRouter returned no HTTP response")
         }

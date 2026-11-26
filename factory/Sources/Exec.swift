@@ -20,6 +20,10 @@ func runWithSecret(_ item: KeychainItem, env: String, label: String, command: [S
 /// status (128 + signal when killed). This process ignores SIGINT and SIGHUP
 /// and forwards SIGTERM, so it lives to clean up after the child.
 func runChild(_ command: [String], environment: [String: String]) throws -> Int32 {
+    try FactoryRuntime.current.runChildProcess(command, environment)
+}
+
+func liveRunChild(_ command: [String], environment: [String: String]) throws -> Int32 {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = command

@@ -64,7 +64,7 @@ enum Cloudflare {
         let jurisdiction = options.optional("--r2-jurisdiction") ?? "default"
         let s3Prefix = options.optional("--r2-s3-secret-prefix")
         let expiresIn = try parseExpiry(try options.required("--expires-in"))
-        let destination = try SecretDestination(options)
+        let destination = try FactoryRuntime.current.destinations.make(options: options)
         let secret = try options.required("--secret")
 
         // Zone identity and zone permissions travel together: an account-only
@@ -109,7 +109,7 @@ enum Cloudflare {
             throw FactoryError.message("Derived tokens may not manage API tokens")
         }
 
-        let expiresOn = expiresIn.map { iso8601(Date().addingTimeInterval($0)) }
+        let expiresOn = expiresIn.map { iso8601(FactoryRuntime.current.clock.now().addingTimeInterval($0)) }
         print("Cloudflare token request")
         print("  Name: \(name)")
         print("  Zone: \(allZones ? "* (every zone of the account)" : zoneName ?? "(account-only)")")
@@ -173,24 +173,31 @@ enum Cloudflare {
             token: parentToken,
             body: try JSONSerialization.data(withJSONObject: payload)
         )
-        do {
-            let verified: VerifyResult = try await request("accounts/\(accountID)/tokens/verify", token: created.value)
-            guard verified.status == "active" else {
-                throw FactoryError.message("Derived Cloudflare token is not active")
-            }
-            try destination.store(created.value, as: secret)
-            if let s3Prefix {
-                // R2 S3 keys: the token ID, and the SHA-256 hex of the token value.
-                let secretKey = SHA256.hash(data: Data(created.value.utf8)).map { String(format: "%02x", $0) }.joined()
-                try destination.store(created.id, as: "\(s3Prefix)_ACCESS_KEY_ID")
-                try destination.store(secretKey, as: "\(s3Prefix)_SECRET_ACCESS_KEY")
-            }
-        } catch {
-            let _: EmptyResult? = try? await request(
-                "accounts/\(accountID)/tokens/\(created.id)", method: "DELETE", token: parentToken
-            )
-            throw FactoryError.message("Derived token was not retained because verification or vault storage failed: \(error)")
+        let s3SecretKey = s3Prefix.map { _ in
+            SHA256.hash(data: Data(created.value.utf8)).map { String(format: "%02x", $0) }.joined()
         }
+        try await withMintRollback(
+            resourceKind: "Cloudflare token",
+            resourceID: created.id,
+            redact: [created.value, parentToken] + (s3SecretKey.map { [$0] } ?? []),
+            work: {
+                let verified: VerifyResult = try await request("accounts/\(accountID)/tokens/verify", token: created.value)
+                guard verified.status == "active" else {
+                    throw FactoryError.message("Derived Cloudflare token is not active")
+                }
+                try destination.store(created.value, as: secret)
+                if let s3Prefix, let s3SecretKey {
+                    // R2 S3 keys: the token ID, and the SHA-256 hex of the token value.
+                    try destination.store(created.id, as: "\(s3Prefix)_ACCESS_KEY_ID")
+                    try destination.store(s3SecretKey, as: "\(s3Prefix)_SECRET_ACCESS_KEY")
+                }
+            },
+            revoke: {
+                let _: EmptyResult = try await request(
+                    "accounts/\(accountID)/tokens/\(created.id)", method: "DELETE", token: parentToken
+                )
+            }
+        )
 
         print("mint=complete")
         print("derived_token_verified=true")
@@ -266,7 +273,7 @@ enum Cloudflare {
         request.httpBody = body
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await FactoryRuntime.current.http.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw FactoryError.message("Cloudflare returned no HTTP response")
         }

@@ -107,6 +107,10 @@ func herdrSession(agentPID: pid_t) -> (title: String, workspace: String)? {
 /// touch that opens the parent is the approval, so no Touch ID prompt follows.
 /// Every caller reads or writes `parent` right after approval.
 func requireUserApproval(parent: KeychainItem, action: String) async throws {
+    try await FactoryRuntime.current.approval.requireApproval(parent: parent, action: action)
+}
+
+func liveRequireUserApproval(parent: KeychainItem, action: String) async throws {
     let home = FileManager.default.homeDirectoryForCurrentUser.path
     let folder = FileManager.default.currentDirectoryPath
     let requester = requestingProcess()
@@ -118,7 +122,7 @@ func requireUserApproval(parent: KeychainItem, action: String) async throws {
         "Reason: \(Request.reason ?? "none given")",
     ]
     for line in details { print("  \(line)") }
-    if parent.isSealed || Request.sealWithYubiKey {
+    if try Request.sealWithYubiKey || parent.isSealed() {
         print("Approve: \(action)")
         fflush(stdout)
         return
@@ -126,13 +130,8 @@ func requireUserApproval(parent: KeychainItem, action: String) async throws {
     print("Waiting for Touch ID…")
     fflush(stdout)
 
-    let context = LAContext()
-    var evaluationError: NSError?
-    guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &evaluationError) else {
-        throw FactoryError.message("Local user authentication is unavailable")
-    }
-    let approved = try await context.evaluatePolicy(
-        .deviceOwnerAuthentication, localizedReason: "\(action)\n\n\(details.joined(separator: "\n"))"
+    let approved = try await FactoryRuntime.current.localAuth.evaluate(
+        localizedReason: "\(action)\n\n\(details.joined(separator: "\n"))"
     )
     guard approved else { throw FactoryError.message("User rejected the request") }
 }
